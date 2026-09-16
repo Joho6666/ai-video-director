@@ -22,10 +22,10 @@ export async function POST(req:NextRequest){
   const images=[...models,...products];
   for(const file of images)if(!(file instanceof File)||!['image/jpeg','image/png','image/webp'].includes(file.type)||file.size>10*1024*1024||file.size===0)throw new Error('图片需为 JPG / PNG / WebP，单张不超过 10 MB');
   const provider=process.env.VIDEO_PROVIDER||'mock';const director=process.env.DIRECTOR_MODE||'mock';
-  if(!['mock','seedance'].includes(provider)||!['mock','pi'].includes(director))throw new Error('服务配置模式无效');
-  if(provider==='seedance'&&director!=='pi')throw new Error('真实 Seedance 生成必须启用 Pi Director，不能提交 Mock 创意');
+  if(!['mock','seedance'].includes(provider)||!['mock','deepseek'].includes(director))throw new Error(director==='pi'?'DIRECTOR_MODE=pi 已停用，请改为 deepseek':'服务配置模式无效');
+  if(provider==='seedance'&&director!=='deepseek')throw new Error('真实 Seedance 生成必须启用 DeepSeek Director，不能提交 Mock 创意');
   if(provider==='seedance'&&(!process.env.SEEDANCE_API_KEY||!process.env.SEEDANCE_MODEL))throw new Error('缺少 Seedance Key 或模型配置');
-  if(director==='pi'&&(!process.env.DIRECTOR_API_KEY||!process.env.DIRECTOR_MODEL))throw new Error('缺少 Director 视觉模型配置');
+  if(director==='deepseek'&&!process.env.DEEPSEEK_API_KEY)throw new Error('缺少 DEEPSEEK_API_KEY');
   const id=randomUUID();const task:Task={id,project_id:id,createdAt:new Date().toISOString(),updatedAt:new Date().toISOString(),requirement,assets:[],status:'UPLOADED',provider:provider as Task['provider'],director:director as Task['director'],logs:[{time:new Date().toISOString(),message:'素材已保存'}],results:['V1','V2','V3'].map((id,i)=>({id,name:['轻奢时尚','都市通勤','活力街拍'][i],status:'waiting'}))};
   await mkdir(path.join(projectDir(id),'uploads'),{recursive:true});
   const files=[{file:reference,kind:'reference' as const},...models.map(file=>({file:file as File,kind:'model' as const})),...products.map(file=>({file:file as File,kind:'product' as const}))];

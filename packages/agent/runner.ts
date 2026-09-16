@@ -3,7 +3,8 @@ import { projectDir,saveTask,jsonWrite,readTask } from '../shared/storage';
 import type { Status,Task } from '../shared/types';
 import { preprocess } from '../video-analysis';
 import { MockVideoGenerationProvider,SeedanceProvider } from '../video-provider';
-import { MockAgentAdapter,PiAgentAdapter } from './adapter';
+import { MockAgentAdapter } from './adapter';
+import { DeepSeekDirectorAdapter } from './deepseek';
 const state=globalThis as typeof globalThis & {directorActive?:Set<string>};
 export const active=state.directorActive??=new Set();
 export async function runTask(task:Task){
@@ -12,11 +13,11 @@ export async function runTask(task:Task){
  try{
   await update('ANALYZING_REFERENCE','正在读取视频元数据并抽取 16 帧');
   task.metadata=await preprocess(path.join(projectDir(task.id),task.assets.find(a=>a.kind==='reference')!.file),path.join(projectDir(task.id),'reference'));
-  await update('EXTRACTING_SHOT_DNA',task.director==='mock'?'读取 Director Skill；离线分析将视觉证据标为 Unknown':'Pi 正在调用视觉模型与 Director Skill');
-  const adapter=task.director==='mock'?new MockAgentAdapter():new PiAgentAdapter();
-  const {plan,treatment}=await adapter.plan(task);
+  await update('EXTRACTING_SHOT_DNA',task.director==='mock'?'读取 Director Skill；离线分析将视觉证据标为 Unknown':'DeepSeek 正在识别人物动作并提取 Shot DNA');
+  const adapter=task.director==='mock'?new MockAgentAdapter():new DeepSeekDirectorAdapter();
+  const result=await adapter.plan(task);const {plan,treatment}=result;
   await update('PLANNING_VARIANTS','校验导演输出、动作连续性和三个版本的结构差异');
-  task.plan=plan;await jsonWrite(path.join(projectDir(task.id),'director-output.json'),treatment);await jsonWrite(path.join(projectDir(task.id),'generation-plan.json'),plan);await saveTask(task);
+  task.plan=plan;await jsonWrite(path.join(projectDir(task.id),'director-output.json'),treatment);if('evidence' in result)await jsonWrite(path.join(projectDir(task.id),'reference-evidence.json'),result.evidence);if('requestMeta' in result)await jsonWrite(path.join(projectDir(task.id),'deepseek-request.json'),result.requestMeta);await jsonWrite(path.join(projectDir(task.id),'generation-plan.json'),plan);await saveTask(task);
   const provider=task.provider==='mock'?new MockVideoGenerationProvider():new SeedanceProvider();
   for(const variant of plan.variants){
    const result=task.results.find(r=>r.id===variant.id)!;result.name=variant.name;result.status='generating';
