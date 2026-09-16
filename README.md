@@ -1,6 +1,6 @@
-# AI Video Director v0.2 — DeepSeek Real Director
+# AI Video Director v0.3 — Validation & Production Readiness
 
-可运行的单页 MVP：上传参考视频、模特/商品图和创作要求，服务端用 FFmpeg 读取元数据、抽取 16 帧，加载原始 AI Commercial Video Director Skill 的 Schema，并生成三个结构化创意版本。默认 `mock` 会真实制作三个 8 秒本地转码预览，方便验证闭环；它不会冒充 AI 生成的广告成片。
+可运行的单页 MVP：`Reference Video → FFmpeg → DeepSeek Vision → Director Skill → V1/V2/V3 Plan → Seedance`。FFmpeg 根据视频时长均匀抽取 16、24 或 32 张静态帧；DeepSeek 分析这些抽样画面，并不原生读取 MP4，也不保证观察到帧间完整动作路径。
 
 ## 启动
 
@@ -19,14 +19,14 @@ npm run dev
 - `VIDEO_PROVIDER=mock`：离线模式，FFmpeg 生成三个可播放的参考片转码预览。
 - `VIDEO_PROVIDER=seedance`：调用 Seedance，必须同时设置 `SEEDANCE_API_KEY` 和 `SEEDANCE_MODEL`。
 - `DIRECTOR_MODE=mock`：确定性离线导演 fixture，所有视觉分析明确标为 Unknown。
-- `DIRECTOR_MODE=deepseek`：使用官方 `deepseek-flash` 读取 16 张有序参考帧、联系表和全部模特／商品图。配置 `DEEPSEEK_API_KEY`、`DEEPSEEK_BASE_URL` 和 `DEEPSEEK_MODEL`。
+- `DIRECTOR_MODE=deepseek`：使用官方 `deepseek-flash` 读取有序参考帧、联系表和全部模特／商品图。配置 `DEEPSEEK_API_KEY`、`DEEPSEEK_BASE_URL` 和 `DEEPSEEK_MODEL`。
 
 Skill 原文件只读加载自 `DIRECTOR_SKILL_PATH`（默认 `C:\Users\JOHO\.codex\skills\ai-commercial-video-director`），其输出 Schema、动作连续性、三版本差异和 Seedance prompt 均在服务端校验。
 
 ## 一次完整流程
 
 1. 上传 1–120 秒 MP4/MOV（≤100 MB），可上传最多 9 张 JPG/PNG/WebP。
-2. 点击开始生成。任务写入 `data/projects/<task-id>`，包含原素材、`reference/metadata.json`、16 帧、`contact-sheet.jpg`、`director-output.json` 和 `generation-plan.json`。
+2. 点击开始生成。任务写入 `data/projects/<task-id>`，包含原素材、动态帧、`frames.json`、`contact-sheet.jpg`、Evidence、Director 输出和 generation plan。
 3. 页面轮询任务状态，完成后显示 V1 轻奢时尚、V2 都市通勤、V3 活力街拍视频卡，可播放和下载。
 
 ## 当前限制
@@ -35,4 +35,4 @@ Skill 原文件只读加载自 `DIRECTOR_SKILL_PATH`（默认 `C:\Users\JOHO\.co
 
 ## 验证
 
-`npm test`、`npm run typecheck`、`npm run lint`、`npm run build`。真实 A/B 需要客户的两个参考视频、同一组模特／商品图与本机 `.env.local` 中的 DeepSeek Key；客户素材与 Key 不进入 Git。
+运行 `npm test`、`npm run typecheck`、`npm run lint`、`npm run build`、`npm run smoke`。`npm run live-director -- --reference ... --model ... --product ...` 在 Key 存在时运行真实视觉验证，缺 Key 时明确输出 UNAVAILABLE。`npm run ab -- ...` 比较两个客户参考；客户素材、Key、生成视频与 `data/` 不进入 Git。
