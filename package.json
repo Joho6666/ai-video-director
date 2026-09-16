@@ -1,1 +1,39 @@
-{"name":"ai-video-director","version":"0.3.0","private":true,"type":"module","scripts":{"dev":"next dev --hostname 127.0.0.1","build":"next build","start":"next start --hostname 127.0.0.1","typecheck":"tsc --noEmit","lint":"eslint .","test":"tsx --test tests/*.test.ts","smoke":"tsx scripts/smoke.ts","ab":"tsx scripts/ab-test.ts","live-director":"tsx scripts/live-director-test.ts"},"dependencies":{"ajv":"^8.17.1","ffmpeg-static":"^5.2.0","ffprobe-static":"^3.1.0","lucide-react":"^0.468.0","next":"^15.5.12","openai":"^6.40.0","react":"^19.1.0","react-dom":"^19.1.0","zod":"^3.24.0"},"devDependencies":{"@types/node":"^22.0.0","@types/react":"^19.0.0","@types/react-dom":"^19.0.0","eslint":"^9.0.0","eslint-config-next":"^15.5.12","tsx":"^4.20.0","typescript":"^5.8.0"}}
+{
+  "name": "ai-video-director",
+  "version": "0.4.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "next dev --hostname 127.0.0.1",
+    "build": "next build",
+    "start": "next start --hostname 127.0.0.1",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint .",
+    "test": "tsx --test tests/*.test.ts",
+    "smoke": "npm run build && tsx scripts/smoke.ts",
+    "ab": "tsx scripts/ab-test.ts",
+    "director-smoke": "npm run build && tsx scripts/director-smoke.ts",
+    "live-director": "npm run director-smoke"
+  },
+  "dependencies": {
+    "ajv": "^8.17.1",
+    "ffmpeg-static": "^5.2.0",
+    "ffprobe-static": "^3.1.0",
+    "jszip": "^3.10.2",
+    "lucide-react": "^0.468.0",
+    "next": "^15.5.12",
+    "openai": "^6.40.0",
+    "react": "^19.1.0",
+    "react-dom": "^19.1.0",
+    "zod": "^3.24.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "eslint": "^9.0.0",
+    "eslint-config-next": "^15.5.12",
+    "tsx": "^4.20.0",
+    "typescript": "^5.8.0"
+  }
+}
