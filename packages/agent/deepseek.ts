@@ -24,6 +24,20 @@ async function normalizedJpeg(source:string,target:string,maxEdge:number){await 
 export function validateEvidenceFrameIds(evidence:z.infer<typeof referenceEvidenceSchema>,validIds:Set<string>){for(const item of Object.values(evidence))for(const id of item.frame_ids)if(!validIds.has(id))throw new Error(`DeepSeek 引用了不存在的帧：${id}`);}
 const analysisEvidenceMap={scene:'scene',shot_size:'shot_size',camera_position:'camera_height',camera_angle:'camera_angle',camera_motion:'camera_motion',subject_trajectory:'subject_trajectory',actions:'action_sequence',lighting:'lighting',rhythm:'rhythm'} as const;
 export function isUnknownClaim(value:string){return /unknown|未知|未见|无法确认|不确定|not visible|not observable|cannot determine|unable to determine/i.test(value.trim());}
+/**
+ * DeepSeek occasionally returns an Unknown product source while leaving a
+ * definite-looking feature label in place. Preserve the hard fact boundary at
+ * the adapter edge by replacing that label with an explicit Unknown marker;
+ * never carry the unverified product claim into the compiled plan.
+ */
+export function normalizeUnknownProductShowcase(supplements:z.infer<typeof supplementsSchema>){
+ return supplements.map(variant=>({...variant,product_showcase:variant.product_showcase.map(item=>{
+  const sources=(Array.isArray(item.evidence)?item.evidence:[item.evidence]).flatMap(source=>source.split(',').map(value=>value.trim())).filter(Boolean);
+  return sources.includes('Unknown')&&!/^unknown\b|^未知/i.test(item.feature.trim())
+   ? {...item,feature:'Unknown: product feature not visually confirmed'}
+   : item;
+ })}));
+}
 export function validateEvidenceAgainstTreatment(treatment:unknown,evidence:z.infer<typeof referenceEvidenceSchema>,supplements?:z.infer<typeof supplementsSchema>,validProductIds=new Set<string>()){
  const analyses=(treatment as {reference_analysis?:Array<Record<string,unknown>>})?.reference_analysis||[];
  for(const analysis of analyses)for(const [field,evidenceField] of Object.entries(analysisEvidenceMap)){
@@ -63,8 +77,8 @@ export class DeepSeekDirectorAdapter implements AgentAdapter {
   const response=await client.chat.completions.create({model:process.env.DEEPSEEK_MODEL||'deepseek-flash',stream:false,max_tokens:16384,response_format:{type:'json_object'},messages:[{role:'system',content:`You are the AI Commercial Video Director. Follow this read-only skill exactly. Output valid JSON only.\n${skill.text}\n\n${directorOutputContract()}`},{role:'user',content:input.content}],thinking:{type:'disabled'}} as OpenAI.Chat.Completions.ChatCompletionCreateParamsNonStreaming);
   const choice=response.choices[0];if(!choice)throw new Error('DeepSeek 未返回结果');if(choice.finish_reason==='length')throw new Error('DeepSeek JSON 被 token 限制截断');if(choice.finish_reason!=='stop')throw new Error(`DeepSeek 异常结束：${choice.finish_reason}`);
   const text=choice.message.content;if(!text?.trim())throw new Error('DeepSeek 返回空 JSON');let raw:unknown;try{raw=JSON.parse(text);}catch{throw new Error('DeepSeek 返回内容不是有效 JSON');}
-  let envelope:z.infer<typeof deepSeekEnvelopeSchema>;try{envelope=deepSeekEnvelopeSchema.parse(raw);}catch(error){const keys=raw&&typeof raw==='object'?Object.keys(raw as object):[];throw new Error(`DeepSeek JSON Schema 校验失败；顶层键：${keys.join(',')||'none'}；${error instanceof Error?error.message:'未知错误'}`);}validateEvidenceFrameIds(envelope.reference_evidence,new Set(input.frames.map(f=>f.id)));validateEvidenceAgainstTreatment(envelope.treatment,envelope.reference_evidence,envelope.supplements,new Set(task.assets.filter(a=>a.kind==='product').map((_,i)=>`product_${String(i+1).padStart(2,'0')}`)));
-  const compiled=await compileTreatment(task,envelope.treatment,envelope.supplements,'live');
+  let envelope:z.infer<typeof deepSeekEnvelopeSchema>;try{envelope=deepSeekEnvelopeSchema.parse(raw);}catch(error){const keys=raw&&typeof raw==='object'?Object.keys(raw as object):[];throw new Error(`DeepSeek JSON Schema 校验失败；顶层键：${keys.join(',')||'none'}；${error instanceof Error?error.message:'未知错误'}`);}const supplements=normalizeUnknownProductShowcase(envelope.supplements);validateEvidenceFrameIds(envelope.reference_evidence,new Set(input.frames.map(f=>f.id)));validateEvidenceAgainstTreatment(envelope.treatment,envelope.reference_evidence,supplements,new Set(task.assets.filter(a=>a.kind==='product').map((_,i)=>`product_${String(i+1).padStart(2,'0')}`)));
+  const compiled=await compileTreatment(task,envelope.treatment,supplements,'live');
   return {...compiled,evidence:envelope.reference_evidence,requestMeta:{id:response.id,model:response.model,duration_ms:Date.now()-started,image_count:input.content.filter(x=>x.type==='image_url').length,image_bytes:input.imageBytes,frame_count:input.frames.length,usage:response.usage}};
  }
 }

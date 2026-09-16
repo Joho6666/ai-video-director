@@ -8,8 +8,32 @@ import type { Task } from '@/packages/shared/types';
 import { resolveAppConfig } from '@/packages/shared/config';
 export const runtime='nodejs';
 export const dynamic='force-dynamic';
+
+/**
+ * In local development Next may normalize the request URL to `localhost`
+ * while the browser is using `127.0.0.1` (or vice versa). Both names resolve
+ * to the same local service, so treat them as equivalent for the CSRF origin
+ * check. Keep the exact-origin check for every non-local request.
+ */
+function isAllowedOrigin(req: NextRequest): boolean {
+ const origin = req.headers.get('origin');
+ if (!origin) return true;
+ try {
+  const originUrl = new URL(origin);
+  const requestUrl = new URL(req.nextUrl.origin);
+  if (originUrl.origin === requestUrl.origin) return true;
+  const localHosts = new Set(['localhost','127.0.0.1','[::1]','::1']);
+  return originUrl.protocol === requestUrl.protocol
+   && originUrl.port === requestUrl.port
+   && localHosts.has(originUrl.hostname)
+   && localHosts.has(requestUrl.hostname);
+ } catch {
+  return false;
+ }
+}
+
 export async function POST(req:NextRequest){
- if(req.headers.get('origin')&&req.headers.get('origin')!==req.nextUrl.origin)return NextResponse.json({error:'跨域请求不受支持'},{status:403});
+ if(!isAllowedOrigin(req))return NextResponse.json({error:'跨域请求不受支持'},{status:403});
  if(Number(req.headers.get('content-length')||0)>150*1024*1024)return NextResponse.json({error:'上传总大小不能超过 150 MB'},{status:413});
  try{
   const form=await req.formData();const reference=form.get('referenceVideo');const requirement=String(form.get('requirement')||'').trim();
