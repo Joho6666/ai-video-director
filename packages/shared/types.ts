@@ -22,5 +22,5 @@ export type Variant = z.infer<typeof variantSchema>;
 export type Plan = z.infer<typeof planSchema>;
 export type Result = { id:string; name:string; status:'waiting'|'generating'|'completed'|'failed'; providerTaskId?:string; url?:string; error?:string };
 export type AppMode='mock'|'director'|'full';
-export type Task = { id:string; project_id:string; createdAt:string; updatedAt:string; requirement:string; assets:Asset[]; status:Status; appMode:AppMode; provider:'mock'|'seedance'|'minimax'|null; director:'mock'|'deepseek'; idempotencyKey?:string; logs:{time:string;message:string}[]; results:Result[]; taskType?:'fashion'|'ecommerce';selectedVariants?:Array<'V1'|'V2'|'V3'>;generationTasks?:GenerationTask[];metadata?:Metadata; plan?:Plan; error?:string };
+export type Task = { id:string; project_id:string; createdAt:string; updatedAt:string; requirement:string; assets:Asset[]; status:Status; appMode:AppMode; provider:'mock'|'seedance'|'minimax'|'wan'|null; director:'mock'|'deepseek'; idempotencyKey?:string; logs:{time:string;message:string}[]; results:Result[]; taskType?:'fashion'|'ecommerce';selectedVariants?:Array<'V1'|'V2'|'V3'>;generationTasks?:GenerationTask[];metadata?:Metadata; plan?:Plan; error?:string };
 export interface VideoQCProvider { evaluate(videoUrl:string):Promise<{passed:boolean;issues:string[]}> }

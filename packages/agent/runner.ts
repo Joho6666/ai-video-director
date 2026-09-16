@@ -25,7 +25,7 @@ export async function runTask(task:Task){
   if(!task.plan){
   await update('ANALYZING_REFERENCE','正在读取视频元数据并抽取参考帧');
   task.metadata=await preprocess(path.join(projectDir(task.id),task.assets.find(a=>a.kind==='reference')!.file),path.join(projectDir(task.id),'reference'));
-  const config=resolveAppConfig();await jsonWrite(path.join(projectDir(task.id),'runtime.json'),{version:'0.5.0',app_mode:task.appMode,director:task.director,video_provider:task.provider,deepseek_model:task.director==='deepseek'?config.deepseekModel:null,minimax_model:task.provider==='minimax'?(process.env.MINIMAX_MODEL||'MiniMax-Hailuo-2.3'):null,frame_count:task.metadata.frameCount});
+  const config=resolveAppConfig();await jsonWrite(path.join(projectDir(task.id),'runtime.json'),{version:'0.5.0',app_mode:task.appMode,director:task.director,video_provider:task.provider,deepseek_model:task.director==='deepseek'?config.deepseekModel:null,minimax_model:task.provider==='minimax'?(process.env.MINIMAX_MODEL||'MiniMax-Hailuo-2.3'):null,wan_model:task.provider==='wan'?(process.env.WAN_MODEL||'wanx2.1-i2v-plus'):null,frame_count:task.metadata.frameCount});
   await update('EXTRACTING_SHOT_DNA',task.director==='mock'?'读取 Director Skill；离线分析将视觉证据标为 Unknown':'DeepSeek 正在识别人物动作并提取 Shot DNA');
   const adapter=task.director==='mock'?new MockAgentAdapter():new DeepSeekDirectorAdapter();
   const result=await adapter.plan(task);const {plan,treatment}=result;

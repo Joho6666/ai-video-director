@@ -6,9 +6,9 @@
 
 - `APP_MODE=director`：DeepSeek 分析和导演方案，无视频 Provider。
 - `APP_MODE=mock`：离线流程演示，所有成片显著标注 DEMO ONLY。
-- `APP_MODE=full`：DeepSeek → Production Agent → Router → MiniMax → 本地 MP4。
+- `APP_MODE=full`：DeepSeek → Production Agent → Router → Wan / MiniMax → 本地 MP4。
 
-复制 `.env.example` 至 `.env.local`，填写需要的 Key。生产模式需要 DeepSeek 和 MiniMax Key。无 MiniMax 返回 Provider unavailable，不回退 Mock。旧 DIRECTOR_MODE、VIDEO_PROVIDER 不参与选择。
+复制 `.env.example` 至 `.env.local`，填写需要的 Key。生产模式需要 DeepSeek 与视频 Provider Key（Wan 或 MiniMax）。通过 VIDEO_PROVIDER=wan|minimax 指定，或自动选用已配置的 Key。无 MiniMax 返回 Provider unavailable，不回退 Mock。旧 DIRECTOR_MODE、VIDEO_PROVIDER 不参与选择。
 
 MiniMax 已核实组合：`MiniMax-Hailuo-2.3`、1080P、6 秒，使用 `https://api.minimax.cn`。8 秒 Director timeline 按比例重排到 6 秒，再生成通用生产 Prompt。UI 在提交前显示实际组合；未核实的模型不接受提交。首帧需已包含人物与商品，自动补边至 1080×1920；不会将独立模特图和商品图伪装成多参考能力。
 
@@ -43,7 +43,7 @@ Director 保留七文件白名单 ZIP。生产任务另含 director-plan.json、
 
 ## Provider 边界
 
-MiniMax 和 Mock 已实现。Seedance 旧适配器保留为 legacy，Wan、Veo 为明确不可用的扩展入口。无质量 Agent、自动重试、自动换模型或批量系统。FFmpeg 16/24/32 帧是抽样静态图，不能证明完整运动路径。
+MiniMax、Wan (DashScope wanx2.1-i2v-plus) 和 Mock 已实现。Seedance 旧适配器保留为 legacy，Veo 为明确未实现的扩展入口。无质量 Agent、自动重试、自动换模型或批量系统。FFmpeg 16/24/32 帧是抽样静态图，不能证明完整运动路径。
 
 官方契约来源（已读取）：
 - https://platform.minimax.cn/docs/api-reference/video-generation-i2v

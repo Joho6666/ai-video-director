@@ -4,9 +4,9 @@
 
 - mock：Web → Task API → FFmpeg → Mock Director → plan → Production Agent → Mock Provider。视频显著标记 DEMO ONLY。
 - director：Web → Task API → FFmpeg → DeepSeek → 只读 Director Skill → plan → 七文件导出。不生成视频。
-- full：同一 Director 链路 → Production Agent → Router → MiniMax → 本地 MP4 → 十文件导出。
+- full：同一 Director 链路 → Production Agent → Router → Wan / MiniMax → 本地 MP4 → 十文件导出。
 
-Provider 接口统一为 name、capabilities、createTask、getTaskStatus、getResult。仅 Mock 和 MiniMax 可路由；Seedance 旧代码保留但不路由，Wan/Veo 明确未实现。不自动重试或降级。
+Provider 接口统一为 name、capabilities、createTask、getTaskStatus、getResult。Mock、MiniMax 与 Wan（DashScope wanx2.1-i2v-plus）可路由；Seedance 旧代码保留但不路由，Veo 明确未实现。不自动重试或降级。
 
 全模式上传独立成片首帧图，按比例缩放补边为 1080×1920。模特图、商品图仅用于 Director；MiniMax 使用单张已包含人物及商品的首帧。当前验证的 MiniMax-Hailuo-2.3 高质量能力为 1080P/6 秒。Production Agent 重排原 8 秒 timeline 后编译通用 Prompt，原始 plan 不改写。
 
