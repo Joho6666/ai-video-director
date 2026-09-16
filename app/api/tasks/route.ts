@@ -34,3 +34,23 @@ export async function POST(req:NextRequest){
  }catch(e){return NextResponse.json({error:e instanceof Error?e.message:'上传失败'},{status:400});}
  finally{active.delete(reservation);}
 }
+
+export async function GET(){
+ try{
+  const { readdir,stat } = await import('node:fs/promises');
+  const { dataRoot } = await import('@/packages/shared/storage');
+  const entries = await readdir(dataRoot,{withFileTypes:true});
+  const ids = entries.filter(e=>e.isDirectory()&&/^[a-f0-9-]{36}$/.test(e.name)).map(e=>e.name);
+  if(!ids.length)return NextResponse.json({latest:null,tasks:[]});
+  const tasksWithTime = await Promise.all(
+   ids.map(async id=>{
+    try{
+     const s=await stat(path.join(dataRoot,id,'task.json'));
+     return {id,mtime:s.mtimeMs};
+    }catch{return null;}
+   })
+  );
+  const sorted = tasksWithTime.filter((t):t is {id:string;mtime:number}=>t!==null).sort((a,b)=>b.mtime-a.mtime);
+  return NextResponse.json({latest:sorted[0]?.id||null,tasks:sorted.map(t=>t.id)});
+ }catch{return NextResponse.json({latest:null,tasks:[]});}
+}
