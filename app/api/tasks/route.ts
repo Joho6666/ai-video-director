@@ -4,6 +4,7 @@ import path from 'node:path';
 import { createHash,randomUUID } from 'node:crypto';
 import { active,runTask } from '@/packages/agent/runner';
 import { dataRoot,jsonWrite,projectDir,readTask,reserveIdempotency,saveTask } from '@/packages/shared/storage';
+import {selectionSchema} from '@/packages/agent/production';
 import type { Task } from '@/packages/shared/types';
 import { resolveAppConfig } from '@/packages/shared/config';
 export const runtime='nodejs';
@@ -43,17 +44,20 @@ export async function POST(req:NextRequest){
   const models=form.getAll('modelImages');const products=form.getAll('productImages');
   if(models.length<1||products.length<1)throw new Error('请至少上传一张模特图和一张商品图');
   if(models.length+products.length>9)throw new Error('模特和商品图片合计最多 9 张');
-  const images=[...models,...products];
+  const firstFrame=form.get('firstFrameImage');
+  const selectedVariants=selectionSchema.parse(JSON.parse(String(form.get('selectedVariants')||'["V1"]')));
+  const taskType=String(form.get('taskType')||'ecommerce');if(!['fashion','ecommerce'].includes(taskType))throw new Error('Unsupported task type');
+  const images=[...models,...products,...(firstFrame instanceof File&&firstFrame.size?[firstFrame]:[])];
   for(const file of images)if(!(file instanceof File)||!['image/jpeg','image/png','image/webp'].includes(file.type)||file.size>10*1024*1024||file.size===0)throw new Error('图片需为 JPG / PNG / WebP，单张不超过 10 MB');
-  const config=resolveAppConfig();const id=randomUUID();const idempotencyKey=req.headers.get('idempotency-key')||randomUUID();
-  const incoming=[{file:reference,kind:'reference' as const},...models.map(file=>({file:file as File,kind:'model' as const})),...products.map(file=>({file:file as File,kind:'product' as const}))];
+  const config=resolveAppConfig();if(config.appMode==='full'&&(!(firstFrame instanceof File)||!firstFrame.size))throw new Error('Full mode requires 成片首帧图');const id=randomUUID();const idempotencyKey=req.headers.get('idempotency-key')||randomUUID();
+  const incoming=[{file:reference,kind:'reference' as const},...models.map(file=>({file:file as File,kind:'model' as const})),...products.map(file=>({file:file as File,kind:'product' as const})),...(firstFrame instanceof File&&firstFrame.size?[{file:firstFrame,kind:'first_frame' as const}]:[])];
   const buffered=await Promise.all(incoming.map(async item=>({...item,data:Buffer.from(await item.file.arrayBuffer())})));
-  const fingerprint=createHash('sha256').update(requirement).update(config.appMode).update(buffered.map(x=>createHash('sha256').update(x.data).digest('hex')).join(':')).digest('hex');
+  const fingerprint=createHash('sha256').update(requirement).update(config.appMode).update(JSON.stringify({selectedVariants,taskType,provider:'auto',model:config.videoProvider})).update(buffered.map(x=>createHash('sha256').update(x.data).digest('hex')).join(':')).digest('hex');
   const reservation=await reserveIdempotency(idempotencyKey,fingerprint,id);if(reservation.existing){try{return NextResponse.json(await readTask(reservation.id));}catch{return NextResponse.json({error:'已有幂等任务记录但任务文件不可用，请更换 Idempotency-Key'},{status:409});}}
-  const task:Task={id,project_id:id,createdAt:new Date().toISOString(),updatedAt:new Date().toISOString(),requirement,assets:[],status:'UPLOADED',appMode:config.appMode,provider:config.videoProvider,director:config.director,idempotencyKey,logs:[{time:new Date().toISOString(),message:'素材已保存'}],results:config.appMode==='director'?[]:['V1','V2','V3'].map((resultId,i)=>({id:resultId,name:['轻奢时尚','都市通勤','活力街拍'][i],status:'waiting'}))};
+  const task:Task={taskType:taskType as "fashion"|"ecommerce",selectedVariants,id,project_id:id,createdAt:new Date().toISOString(),updatedAt:new Date().toISOString(),requirement,assets:[],status:'UPLOADED',appMode:config.appMode,provider:config.videoProvider,director:config.director,idempotencyKey,logs:[{time:new Date().toISOString(),message:'素材已保存'}],results:config.appMode==='director'?[]:selectedVariants.map((resultId,i)=>({id:resultId,name:['轻奢时尚','都市通勤','活力街拍'][i],status:'waiting'}))};
   await mkdir(path.join(projectDir(id),'uploads'),{recursive:true});
   for(const {file,kind,data} of buffered){const ext=kind==='reference'?path.extname(file.name).toLowerCase():({'image/jpeg':'.jpg','image/png':'.png','image/webp':'.webp'}[file.type]||'.jpg');const relative=`uploads/${randomUUID()}${ext}`;await writeFile(path.join(projectDir(id),relative),data);task.assets.push({name:file.name,file:relative,mime:file.type,kind});}
-  await jsonWrite(path.join(projectDir(id),'runtime.json'),{version:'0.4.0',app_mode:task.appMode,director:task.director,video_provider:task.provider,deepseek_model:task.director==='deepseek'?config.deepseekModel:null,seedance_model:task.provider==='seedance'?config.seedanceModel:null,frame_count:null});
+  await jsonWrite(path.join(projectDir(id),'runtime.json'),{version:'0.5.0',app_mode:task.appMode,director:task.director,video_provider:task.provider,deepseek_model:task.director==='deepseek'?config.deepseekModel:null,seedance_model:task.provider==='seedance'?config.seedanceModel:null,frame_count:null});
   await saveTask(task);active.add(id);after(()=>runTask(task));return NextResponse.json(task,{status:201});
  }catch(e){return NextResponse.json({error:e instanceof Error?e.message:'上传失败'},{status:400});}
 }

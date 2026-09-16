@@ -58,7 +58,7 @@ export async function buildDeepSeekInput(task:Task){
  for(const frame of sorted){content.push({type:'text',text:`reference/${frame.id} timestamp=${frame.timestamp.toFixed(3)}s`});content.push({type:'image_url',image_url:{url:await dataUrl(path.join(root,'reference',frame.file)),detail:'low'}});}
  content.push({type:'text',text:'reference/contact_sheet: overview only; individual frames above remain the evidence source.'});content.push({type:'image_url',image_url:{url:await dataUrl(path.join(root,'reference','contact-sheet.jpg')),detail:'low'}});
  const roleCounts={model:0,product:0};
- for(const asset of task.assets.filter(a=>a.kind!=='reference')){
+ for(const asset of task.assets.filter(a=>a.kind==='model'||a.kind==='product')){
   const role=asset.kind==='model'?'model':'product';roleCounts[role]++;const id=`${role}_${String(roleCounts[role]).padStart(2,'0')}`;const normalized=await normalizedJpeg(path.join(root,asset.file),path.join(root,'director-input',`${id}.jpg`),1280);content.push({type:'text',text:`${role}/${id} original_name=${asset.name}. Describe only observable facts; do not infer material composition or product claims.`});content.push({type:'image_url',image_url:{url:await dataUrl(normalized),detail:'auto'}});
  }
  content.push({type:'text',text:'FINAL OUTPUT REMINDER: return one complete JSON object with all required fields. Do not omit supplements or reference_evidence, and do not wrap JSON in Markdown.'});

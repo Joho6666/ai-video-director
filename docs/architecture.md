@@ -1,15 +1,19 @@
-# Architecture
+# Architecture · v0.5
 
-运行模式由唯一的 `APP_MODE` 决定：
+唯一模式配置为 APP_MODE：
 
-- `mock`: `Web → task API → FFmpeg → Mock Director → generation-plan.json → Mock Provider`，生成明确标记为 `MOCK DEMO / PIPELINE PREVIEW` 的本地参考片转码。
-- `director`: `Web → task API → FFmpeg → DeepSeek Director → original Director Skill → generation-plan.json → export package`，完成后不创建 `results/` 或 MP4。
-- `full`: `Web → task API → FFmpeg → DeepSeek Director → original Director Skill → generation-plan.json → Seedance Provider → results`。
+- mock：Web → Task API → FFmpeg → Mock Director → plan → Production Agent → Mock Provider。视频显著标记 DEMO ONLY。
+- director：Web → Task API → FFmpeg → DeepSeek → 只读 Director Skill → plan → 七文件导出。不生成视频。
+- full：同一 Director 链路 → Production Agent → Router → MiniMax → 本地 MP4 → 十文件导出。
 
-Web 只负责素材输入、状态轮询、最近任务和结果展示。API 校验类型、大小、扩展名、模式和必需的模特／商品图片，使用原子 JSON 写入保存任务。每个任务有持久 `runtime.json`、幂等提交记录和 `run.lock`；同一个 `Idempotency-Key` 不会创建第二个任务，已有 Seedance `providerTaskId` 时只继续轮询。
+Provider 接口统一为 name、capabilities、createTask、getTaskStatus、getResult。仅 Mock 和 MiniMax 可路由；Seedance 旧代码保留但不路由，Wan/Veo 明确未实现。不自动重试或降级。
 
-`video-analysis` 使用 ffprobe 获取 duration/fps/resolution，并按 ≤10s、≤20s、>20s 分别抽取 16、24、32 张均匀静态帧，同时生成对应列数的联系表和有序 `frames.json`。时间戳表达均匀采样位置；静态抽帧无法证明完整动作路径，快速步态、脚接触、微表情和帧间过渡必须标为 Inferred 或 Unknown。
+全模式上传独立成片首帧图，按比例缩放补边为 1080×1920。模特图、商品图仅用于 Director；MiniMax 使用单张已包含人物及商品的首帧。当前验证的 MiniMax-Hailuo-2.3 高质量能力为 1080P/6 秒。Production Agent 重排原 8 秒 timeline 后编译通用 Prompt，原始 plan 不改写。
 
-DeepSeek Adapter 用一次官方 JSON Chat Completion 发送连续抽样帧、联系表、模特图、商品图和只读 Skill。返回值经过 `reference_evidence` 帧追溯、Evidence 与分析交叉校验、原 Skill Schema、2–4 Beat 连续性、2–4 商品展示动作、实际三版本差异和 Prompt 压缩校验。
+每个选中版本持久保存 GenerationTask。提交意图在 POST 前落盘；远程 ID 返回后立即落盘。恢复时读取 generation-tasks.json，已有 ID 只能查询。无 ID 且有提交意图视为结果不明，需人工核对。任务锁与 Idempotency-Key 阻止并发重复执行。远程成功后下载并 FFprobe 校验时长、比例、视频流，再标记 COMPLETED。部分失败保留成功视频。
 
-任务状态是 `UPLOADED → ANALYZING_REFERENCE → EXTRACTING_SHOT_DNA → PLANNING_VARIANTS → (GENERATING_V1/V2/V3) → COMPLETED`；Director 模式跳过生成阶段，直接在方案与导出包写入后完成。任一步失败会写入 `FAILED` 与可读错误。导出 ZIP 只包含七个固定普通文件，不包含原始素材、抽样帧、视频、API 响应或密钥。
+FFmpeg 按 ≤10s、≤20s、>20s 抽取 16/24/32 张均匀静态帧，生成联系表和有序清单。时间戳是均匀采样位置，不能证明完整运动轨迹。DeepSeek 单次请求包含帧、联系表、模特和商品图片；不包含新增首帧。保持 Skill Schema、Evidence、连续性、实际三版本差异和 Prompt 校验。
+
+Director ZIP 保持七文件白名单；生产增加 director-plan.json、generation-request.json、provider-result.json。导出拒绝 symlink 和超限文件，不含素材、MP4、密钥、data URL、绝对路径、签名下载地址。视频单独下载。
+
+本地 runtime、任务锁、幂等记录及生产记录不进入 Git。异常退出遗留锁需要人工确认原进程已停止后处理。真实 MiniMax 质量只能通过具备凭证的显式 live 测试验收，模拟 HTTP 测试不能替代。

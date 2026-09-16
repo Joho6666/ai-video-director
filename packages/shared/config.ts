@@ -1,8 +1,9 @@
+import {resolveVideoRoute} from '../video-provider/router';
 export type AppMode='mock'|'director'|'full';
 export type AppConfig={
  appMode:AppMode;
  director:'mock'|'deepseek';
- videoProvider:'mock'|'seedance'|null;
+ videoProvider:'mock'|'minimax'|null;
  deepseekModel:string;
  seedanceModel:string|null;
  deepseekConfigured:boolean;
@@ -19,11 +20,11 @@ export function resolveAppConfig(env:Env=process.env):AppConfig{
  const seedanceConfigured=Boolean(env.SEEDANCE_API_KEY&&env.SEEDANCE_MODEL);
  if(appMode==='director'&&!deepseekConfigured)throw new Error('Director Mode 缺少 DEEPSEEK_API_KEY');
  if(appMode==='full'&&!deepseekConfigured)throw new Error('Full Mode 缺少 DEEPSEEK_API_KEY');
- if(appMode==='full'&&!seedanceConfigured)throw new Error('Full Mode 缺少 Seedance API Key 或模型配置');
+ if(appMode==='full')resolveVideoRoute(appMode,'ecommerce',env);
  return {
   appMode,
   director:appMode==='mock'?'mock':'deepseek',
-  videoProvider:appMode==='mock'?'mock':appMode==='full'?'seedance':null,
+  videoProvider:appMode==='mock'?'mock':appMode==='full'?'minimax':null,
   deepseekModel:env.DEEPSEEK_MODEL||'deepseek-flash',
   seedanceModel:env.SEEDANCE_MODEL||null,
   deepseekConfigured,
@@ -34,7 +35,8 @@ export function resolveAppConfig(env:Env=process.env):AppConfig{
 export function configHealth(env:Env=process.env){
  const appMode=(env.APP_MODE||'mock') as AppMode;
  if(!['mock','director','full'].includes(appMode))throw new Error('APP_MODE 必须为 mock、director 或 full');
- return {appMode,deepseekConfigured:Boolean(env.DEEPSEEK_API_KEY),seedanceConfigured:Boolean(env.SEEDANCE_API_KEY&&env.SEEDANCE_MODEL),deepseekModel:env.DEEPSEEK_MODEL||'deepseek-flash',seedanceModel:env.SEEDANCE_MODEL||null};
+ let production=null;let productionError:string|null=null;try{production=resolveVideoRoute(appMode,'ecommerce',env);}catch(e){productionError=e instanceof Error?e.message:'Provider unavailable';}
+ return {production,productionError,minimaxConfigured:Boolean(env.MINIMAX_API_KEY),appMode,deepseekConfigured:Boolean(env.DEEPSEEK_API_KEY),seedanceConfigured:Boolean(env.SEEDANCE_API_KEY&&env.SEEDANCE_MODEL),deepseekModel:env.DEEPSEEK_MODEL||'deepseek-flash',seedanceModel:env.SEEDANCE_MODEL||null};
 }
 
 export function publicConfig(config:AppConfig){

@@ -1,39 +1,51 @@
-# AI Video Director v0.4 — Director-First
+# AI Video Director v0.5 · Production Agent
 
-可运行的单页 MVP：`Reference Video → FFmpeg → Director → generation-plan.json → optional Seedance`。FFmpeg 根据视频时长均匀抽取 16、24 或 32 张静态帧；DeepSeek 分析这些抽样画面，并不原生读取 MP4，也不保证观察到帧间完整动作路径。
+上传参考视频、模特及商品图，经 DeepSeek Director 生成三份导演方案。生产模式增加成片首帧图，可勾选 V1/V2/V3 中的 1–3 条视频（默认 V1）。
 
-## 启动
+## 运行模式
 
-```bash
+- `APP_MODE=director`：DeepSeek 分析和导演方案，无视频 Provider。
+- `APP_MODE=mock`：离线流程演示，所有成片显著标注 DEMO ONLY。
+- `APP_MODE=full`：DeepSeek → Production Agent → Router → MiniMax → 本地 MP4。
+
+复制 `.env.example` 至 `.env.local`，填写需要的 Key。生产模式需要 DeepSeek 和 MiniMax Key。无 MiniMax 返回 Provider unavailable，不回退 Mock。旧 DIRECTOR_MODE、VIDEO_PROVIDER 不参与选择。
+
+MiniMax 已核实组合：`MiniMax-Hailuo-2.3`、1080P、6 秒，使用 `https://api.minimax.cn`。8 秒 Director timeline 按比例重排到 6 秒，再生成通用生产 Prompt。UI 在提交前显示实际组合；未核实的模型不接受提交。首帧需已包含人物与商品，自动补边至 1080×1920；不会将独立模特图和商品图伪装成多参考能力。
+
+```powershell
 npm install
-copy .env.example .env.local
-npm run dev
+npm run dev -- --port 3080
 ```
-
-打开 http://127.0.0.1:3000 。也可使用 `npm run build && npm start` 运行生产构建。
-
-## 配置
-
-`.env.local`：
-
-- `APP_MODE=mock`：离线流程预览，使用 Mock Director 和本地 FFmpeg 参考片转码，不代表 AI 广告成片。
-- `APP_MODE=director`：使用官方 `deepseek-flash` 读取有序参考帧、联系表和全部模特／商品图，只输出三套导演方案和导出包，不生成视频。需要 `DEEPSEEK_API_KEY`、`DEEPSEEK_BASE_URL` 和 `DEEPSEEK_MODEL`。
-- `APP_MODE=full`：DeepSeek Director 加 Seedance Provider，需要同时设置 `DEEPSEEK_API_KEY`、`SEEDANCE_API_KEY` 和 `SEEDANCE_MODEL`。
-
-旧的 `DIRECTOR_MODE` 和 `VIDEO_PROVIDER` 仅作为历史配置参考，不再参与运行决策；请迁移到 `APP_MODE`。
-
-Skill 原文件只读加载自 `DIRECTOR_SKILL_PATH`（默认 `C:\Users\JOHO\.codex\skills\ai-commercial-video-director`），其输出 Schema、动作连续性、三版本差异和 Seedance prompt 均在服务端校验。
-
-## 一次完整流程
-
-1. 上传 1–120 秒 MP4/MOV（≤100 MB），至少一张模特图和一张商品图，合计最多 9 张 JPG/PNG/WebP。
-2. 点击开始生成。任务写入 `data/projects/<task-id>`，包含原素材、动态帧、`frames.json`、`contact-sheet.jpg`、Evidence、Director 输出、runtime 和 generation plan。
-3. `director` 模式完成后显示 V1/V2/V3 导演方案卡，可复制 Prompt 或下载严格白名单导出包；`mock` 模式显示三个明确标注的流程预览视频。
-
-## 当前限制
-
-没有用户系统、批量矩阵、发布、自动 QC、复杂剪辑器或多租户。Mock 不执行视觉理解；DeepSeek 会进行单次真实视觉 Director 调用，失败时不会自动回退或重试。静态抽帧不能证明完整动作路径，快速步态、脚接触、微表情和帧间过渡只能标为 Inferred 或 Unknown。Seedance 的具体模型和账户权限仍需在目标环境配置。
 
 ## 验证
 
-运行 `npm test`、`npm run typecheck`、`npm run lint`、`npm run build`、`npm run smoke`。`npm run director-smoke` 在 Key 存在时强制 `APP_MODE=director`，运行一次真实视觉 Director 并验证 Evidence、plan、runtime、导出包和无视频结果；缺 Key 时明确输出 UNAVAILABLE。`npm run ab -- --reference-a ... --reference-b ... --model ... --product ...` 比较两个客户参考；客户素材、Key、生成视频与 `data/` 不进入 Git。
+```powershell
+npm test
+npm run typecheck
+npm run lint
+npm run build
+npm run smoke
+npm run provider-test
+npm run provider-live -- --plan <generation-plan.json> --first-frame <image.jpg>
+```
+
+`provider-live` 仅显式生成 V1。缺 Key 输出 UNAVAILABLE 并退出 0；模拟接口测试不代表真实视频测试。build/smoke 前停止同目录开发服务器，避免共用 .next 缓存冲突。
+
+## 状态与恢复
+
+每个版本持久保存 `generation-tasks.json`，先写提交意图，再提交一次，拿到 task_id 后立即保存。已有 task_id 仅查询；无 task_id 但存在提交意图时要求人工核对，不自动再扣费。远程成功后还需下载并通过 FFprobe 检查才完成。部分失败保留成功版本。
+
+`npm run production-resume -- <task-id>` 复用既有 plan 和生产记录。运行锁存在时不启动第二个 runner；进程异常退出留下的锁需要人工确认原进程停止后清理，系统不自动抢锁。旧 Seedance 任务仅查看，不恢复付费任务。
+
+## 导出
+
+Director 保留七文件白名单 ZIP。生产任务另含 director-plan.json、generation-request.json、provider-result.json（合计十文件）；不含素材、视频、Key、data URL、绝对路径或临时签名下载地址。MP4 在 results/ 单独提供下载。
+
+## Provider 边界
+
+MiniMax 和 Mock 已实现。Seedance 旧适配器保留为 legacy，Wan、Veo 为明确不可用的扩展入口。无质量 Agent、自动重试、自动换模型或批量系统。FFmpeg 16/24/32 帧是抽样静态图，不能证明完整运动路径。
+
+官方契约来源（已读取）：
+- https://platform.minimax.cn/docs/api-reference/video-generation-i2v
+- https://platform.minimax.cn/docs/api-reference/video-generation-query
+- https://platform.minimax.cn/docs/api-reference/video-generation-download

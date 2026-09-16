@@ -13,9 +13,9 @@ import type { Plan, Task } from '../packages/shared/types';
 test('APP_MODE resolves the only supported runtime combinations',()=>{
  assert.deepEqual(resolveAppConfig({APP_MODE:'mock'}),{appMode:'mock',director:'mock',videoProvider:'mock',deepseekModel:'deepseek-flash',seedanceModel:null,deepseekConfigured:false,seedanceConfigured:false});
  assert.equal(resolveAppConfig({APP_MODE:'director',DEEPSEEK_API_KEY:'key'}).videoProvider,null);
- assert.equal(resolveAppConfig({APP_MODE:'full',DEEPSEEK_API_KEY:'key',SEEDANCE_API_KEY:'seed',SEEDANCE_MODEL:'seedance'}).director,'deepseek');
+ assert.equal(resolveAppConfig({APP_MODE:'full',DEEPSEEK_API_KEY:'key',MINIMAX_API_KEY:'key'}).director,'deepseek');
  assert.throws(()=>resolveAppConfig({APP_MODE:'director'}),/DEEPSEEK_API_KEY/);
- assert.throws(()=>resolveAppConfig({APP_MODE:'full',DEEPSEEK_API_KEY:'key'}),/Seedance/);
+ assert.throws(()=>resolveAppConfig({APP_MODE:'full',DEEPSEEK_API_KEY:'key'}),/MINIMAX/);
  assert.throws(()=>resolveAppConfig({APP_MODE:'broken'}),/APP_MODE/);
 });
 

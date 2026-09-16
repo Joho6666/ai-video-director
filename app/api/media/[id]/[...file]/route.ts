@@ -1,5 +1,5 @@
 import { NextRequest } from 'next/server';
-import { stat } from 'node:fs/promises';
+import { stat,lstat } from 'node:fs/promises';
 import { createReadStream } from 'node:fs';
 import { Readable } from 'node:stream';
 import path from 'node:path';
@@ -8,8 +8,9 @@ export const runtime='nodejs';
 export async function GET(req:NextRequest,{params}:{params:Promise<{id:string;file:string[]}>}){
  try{
   const {id,file}=await params;const relative=file.join('/');
-  if(!/^(uploads\/[a-f0-9-]+\.(mp4|mov|jpg|png|webp)|reference\/(metadata\.json|frames\.json|contact-sheet\.jpg|frames\/frame-\d+\.jpg)|results\/V[123]\.mp4|generation-plan\.json|director-output\.json|reference-evidence\.json|deepseek-request\.json|runtime\.json|exports\/(V[123]-prompt\.txt|generation-plan\.json|reference-evidence\.json|assets-manifest\.json|README\.txt|creative-package\.zip))$/.test(relative))return new Response('Not found',{status:404});
+  if(!/^(uploads\/[a-f0-9-]+\.(mp4|mov|jpg|png|webp)|reference\/(metadata\.json|frames\.json|contact-sheet\.jpg|frames\/frame-\d+\.jpg)|results\/V[123]\.mp4|generation-plan\.json|director-output\.json|reference-evidence\.json|deepseek-request\.json|runtime\.json|exports\/(director-plan\.json|generation-request\.json|provider-result\.json|V[123]-prompt\.txt|generation-plan\.json|reference-evidence\.json|assets-manifest\.json|README\.txt|creative-package\.zip))$/.test(relative))return new Response('Not found',{status:404});
   const root=projectDir(id);const target=path.resolve(root,...file);if(!target.startsWith(root+path.sep))return new Response('Not found',{status:404});
+  const info=await lstat(target);if(info.isSymbolicLink()||!info.isFile())return new Response('Not found',{status:404});
   const size=(await stat(target)).size;const ext=path.extname(target);const mime:Record<string,string>={'.mp4':'video/mp4','.mov':'video/quicktime','.jpg':'image/jpeg','.png':'image/png','.webp':'image/webp','.json':'application/json','.txt':'text/plain; charset=utf-8','.zip':'application/zip'};
   const headers:Record<string,string>={'Content-Type':mime[ext]||'application/octet-stream','Accept-Ranges':'bytes','Cache-Control':'private, max-age=3600','X-Content-Type-Options':'nosniff'};
   if(req.nextUrl.searchParams.has('download'))headers['Content-Disposition']=`attachment; filename="${path.basename(target)}"`;

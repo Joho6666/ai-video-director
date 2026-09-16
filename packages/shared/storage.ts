@@ -18,6 +18,6 @@ export async function reserveIdempotency(key:string,fingerprint:string,id:string
 
 export async function acquireTaskLock(id:string){
  const file=path.join(projectDir(id),'run.lock');
- try{const handle=await open(file,'wx');await handle.writeFile(JSON.stringify({owner:randomUUID(),startedAt:new Date().toISOString()}));return async()=>{await handle.close();await unlink(file).catch(()=>{});};}
+ try{const handle=await open(file,'wx');await handle.writeFile(JSON.stringify({owner:randomUUID(),pid:process.pid,startedAt:new Date().toISOString()}));return async()=>{await handle.close();await unlink(file).catch(()=>{});};}
  catch(error){if((error as NodeJS.ErrnoException).code==='EEXIST')return null;throw error;}
 }
