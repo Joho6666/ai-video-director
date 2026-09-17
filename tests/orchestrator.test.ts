@@ -95,13 +95,13 @@ test('Quality Agent evaluates scores, dimensions, and pass/fail thresholds', asy
   } as Variant;
 
   // Passing simulation
-  const passReport = await evaluateQualitySkill('dummy.mp4', dummyVariant, 0, { simulatedScore: 85 });
+  const passReport = await evaluateQualitySkill('dummy.mp4', dummyVariant, 0, { mode: 'mock', simulatedScore: 85 });
   assert.equal(passReport.passed, true);
   assert.equal(passReport.overall_score, 85);
   assert.equal(passReport.issues.length, 0);
 
   // Failing simulation
-  const failReport = await evaluateQualitySkill('dummy.mp4', dummyVariant, 0, {
+  const failReport = await evaluateQualitySkill('dummy.mp4', dummyVariant, 0, { mode: 'mock',
     simulatedScore: 65,
     simulatedIssues: ['Motion glitch on footstep'],
   });
@@ -117,7 +117,7 @@ test('Quality Agent evaluates scores, dimensions, and pass/fail thresholds', asy
   const fs = await import('node:fs/promises');
   await fs.writeFile(emptyPath, Buffer.alloc(0));
 
-  const emptyReport = await evaluateQualitySkill(emptyPath, dummyVariant, 0);
+  const emptyReport = await evaluateQualitySkill(emptyPath, dummyVariant, 0, { mode: 'mock' });
   assert.equal(emptyReport.passed, false);
   assert.equal(emptyReport.overall_score, 0);
   assert.match(emptyReport.issues[0], /视频文件为空/);
@@ -141,10 +141,13 @@ test('Retry Agent enforces max 2 retries and generates targeted prompt refinemen
     attempt: 0,
     overall_score: 60,
     passed: false,
-    dimensions: { motion_naturalness: 12, human_feeling: 15, product_presentation: 15, camera_execution: 18 },
+    dimensions: { motion_naturalness: 12, human_feeling: 15, product_fidelity: 15, camera_execution: 18 },
     issues: ['检测到突兀瞬移或非连续动作词', '商品卖点展示不明显'],
     recommendations: [],
     evaluated_at: new Date().toISOString(),
+    evaluation_mode: 'mock' as const,
+    evidence: [],
+    retry_required: true,
   };
 
   // Attempt 0 -> Retry 1
@@ -163,6 +166,11 @@ test('Retry Agent enforces max 2 retries and generates targeted prompt refinemen
   const retry3 = evaluateRetrySkill(report, request, MAX_RETRIES_PER_VARIANT);
   assert.equal(retry3.can_retry, false);
   assert.equal(retry3.reason, 'MAX_RETRIES_EXCEEDED');
+
+  const uncertainReport = { ...report, retry_required: false };
+  const noRetry = evaluateRetrySkill(uncertainReport, request, 0);
+  assert.equal(noRetry.can_retry, false);
+  assert.equal(noRetry.reason, 'RETRY_NOT_REQUIRED');
 });
 
 test('End-to-end Mock Workflow runs full state machine, generates agent-run.json and recommendation', async () => {

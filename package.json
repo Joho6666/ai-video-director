@@ -1,6 +1,6 @@
 {
   "name": "ai-video-director",
-  "version": "0.5.0",
+  "version": "1.1.0",
   "private": true,
   "type": "module",
   "scripts": {
@@ -15,10 +15,15 @@
     "director-smoke": "npm run build && tsx scripts/director-smoke.ts",
     "live-director": "npm run director-smoke",
     "provider-test": "tsx --test tests/provider.test.ts tests/production.test.ts",
+    "pi-test": "tsx --test tests/pi.test.ts",
+    "quality-test": "tsx --test tests/quality.test.ts",
+    "e2e-live": "tsx scripts/e2e-live.ts",
     "provider-live": "tsx scripts/provider-live.ts",
     "production-resume": "tsx scripts/production-resume.ts"
   },
   "dependencies": {
+    "@earendil-works/pi-agent-core": "0.85.1",
+    "@earendil-works/pi-ai": "0.85.1",
     "ajv": "^8.17.1",
     "ffmpeg-static": "^5.2.0",
     "ffprobe-static": "^3.1.0",

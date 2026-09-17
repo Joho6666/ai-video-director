@@ -9,6 +9,33 @@ import {routeProvider,resolveVideoRoute} from '../video-provider/router';
 import type {GenerationTask,VideoGenerationProvider,VideoGenerationRequest} from '../video-provider/types';
 
 export const selectionSchema=z.array(z.enum(['V1','V2','V3'])).min(1).max(3).refine(ids=>new Set(ids).size===ids.length,'Duplicate variant selection');
+const generationRequestSchema=z.object({
+ taskId:z.string().min(1),variantId:z.enum(['V1','V2','V3']),model:z.string().min(1),mode:z.literal('image-to-video'),prompt:z.string().min(1),duration:z.number().positive(),aspect_ratio:z.literal('9:16'),quality:z.literal('high'),resolution:z.string().min(1),
+ firstFrame:z.object({id:z.string().min(1),file:z.string().min(1),sha256:z.string().regex(/^[a-f0-9]{64}$/i)}).strict().optional(),
+}).strict();
+export const generationTaskSchema=z.object({
+ id:z.string().min(1),variantId:z.enum(['V1','V2','V3']),provider:z.enum(['mock','minimax','seedance','wan','veo']),model:z.string().min(1),task_id:z.string().min(1).optional(),status:z.enum(['PENDING','SUBMITTED','PROCESSING','COMPLETED','FAILED','MANUAL_VERIFICATION_REQUIRED']),created_at:z.string().min(1),updated_at:z.string().min(1),submission_started_at:z.string().min(1).optional(),result_url:z.string().min(1).optional(),error:z.string().min(1).optional(),request:generationRequestSchema,attempt:z.number().int().min(0).max(2).optional(),previous_attempt_id:z.string().min(1).optional(),quality_passed:z.boolean().optional(),
+}).strict();
+export const generationTasksSchema=z.array(generationTaskSchema);
+export function validateGenerationTasks(taskId:string,value:unknown):GenerationTask[]{
+ const jobs=generationTasksSchema.parse(value) as GenerationTask[];const ids=new Set<string>();const attempts=new Map<string,Set<number>>();
+ for(const job of jobs){
+  if(ids.has(job.id))throw new Error(`Duplicate generation attempt id: ${job.id}`);ids.add(job.id);
+  if(job.request.taskId!==taskId||job.request.variantId!==job.variantId)throw new Error('Persisted generation task does not belong to its task');
+  const attempt=job.attempt??0;const seen=attempts.get(job.variantId)??new Set<number>();if(seen.has(attempt))throw new Error(`Duplicate generation attempt for ${job.variantId}: ${attempt}`);seen.add(attempt);attempts.set(job.variantId,seen);
+ }
+ return jobs;
+}
+export async function loadGenerationTasks(task:Task):Promise<GenerationTask[]>{
+ const file=path.join(projectDir(task.id),'generation-tasks.json');
+ try{return validateGenerationTasks(task.id,JSON.parse(await readFile(file,'utf8')));}
+ catch(error){
+  if((error as NodeJS.ErrnoException).code!=='ENOENT')throw error;
+  const productionStarted=Boolean(task.generationTasks?.length)||task.results.some(result=>result.status!=='waiting'||result.providerTaskId)||['GENERATING','REVIEWING','RETRYING','COMPLETED'].includes(task.status);
+  if(productionStarted)throw new Error('generation-tasks.json missing after production started; refusing to recreate paid attempts');
+  return [];
+ }
+}
 export function productionPrompt(variant:Variant,duration:number){
  const total=variant.timeline.reduce((sum,b)=>sum+b.duration,0);if(!total)throw new Error('Empty timeline');let elapsed=0;
  const timeline=variant.timeline.map((beat,i)=>{const start=elapsed;elapsed=i===variant.timeline.length-1?duration:Number((elapsed+beat.duration/total*duration).toFixed(3));return {...beat,duration:elapsed-start,time_range:`${start}-${elapsed}s`};});
@@ -38,8 +65,9 @@ export async function downloadVideo(url:string,target:string,duration:number,tra
 export async function executeGeneration(job:GenerationTask,provider:VideoGenerationProvider,persist:()=>Promise<void>,finish:(url:string)=>Promise<string>,options={pollMs:5000,timeoutMs:20*60_000}){
  if(job.status==='COMPLETED')return;
  // A durable intent with no remote ID has an ambiguous submission outcome.
- if(!job.task_id&&job.submission_started_at)throw new Error('Submission outcome unknown; manual verification required; no resubmission');
- if(!job.task_id){job.submission_started_at=new Date().toISOString();await persist();const remote=await provider.createTask(job.request);job.task_id=remote.id;job.status='SUBMITTED';await persist();}
+ if(job.provider!==provider.name)throw new Error('Saved provider differs; refusing to reroute');
+ if(!job.task_id&&job.submission_started_at){job.status='MANUAL_VERIFICATION_REQUIRED';await persist();throw new Error('Submission outcome unknown; manual verification required; no resubmission');}
+ if(!job.task_id){job.submission_started_at=new Date().toISOString();await persist();try{const remote=await provider.createTask(job.request);if(!remote.id)throw new Error('Missing remote task ID');job.task_id=remote.id;job.status='SUBMITTED';await persist();}catch(error){if(!job.task_id){job.status='MANUAL_VERIFICATION_REQUIRED';await persist();}throw error;}}
  const deadline=Date.now()+options.timeoutMs;
  for(;;){const status=await provider.getTaskStatus(job.task_id);if(status==='FAILED')throw new Error('Provider generation failed');if(status==='COMPLETED')break;if(!['SUBMITTED','PROCESSING','PENDING'].includes(status))throw new Error('Invalid provider state');job.status=status==='PROCESSING'?'PROCESSING':'SUBMITTED';await persist();if(Date.now()>=deadline)throw new Error('Polling timeout; remote ID saved; resume polling only');await new Promise(r=>setTimeout(r,options.pollMs));}
  const result=await provider.getResult(job.task_id);job.result_url=await finish(result.url);job.status='COMPLETED';delete job.error;await persist();
@@ -50,8 +78,7 @@ export async function produce(task:Task,providerOverride?:VideoGenerationProvide
  const provider=providerOverride||routeProvider(task.appMode,task.taskType);task.provider=route.provider;
  const selected=selectionSchema.parse(task.selectedVariants||['V1']);task.selectedVariants=selected;
  const root=projectDir(task.id);
- try{task.generationTasks=JSON.parse(await readFile(path.join(root,'generation-tasks.json'),'utf8'));}catch(e){if((e as NodeJS.ErrnoException).code!=='ENOENT')throw e;}
- task.generationTasks??=[];
+ task.generationTasks=await loadGenerationTasks(task);
  const firstFrame=task.appMode==='full'&&!task.generationTasks.length?await prepareFirstFrame(task):undefined;
  for(const id of selected){if(task.generationTasks.some(j=>j.variantId===id))continue;const variant=task.plan.variants.find(v=>v.id===id);if(!variant)throw new Error('Selected variant missing');
   const request:VideoGenerationRequest={taskId:task.id,variantId:id,model:route.model,mode:'image-to-video',prompt:productionPrompt(variant,route.duration).prompt,duration:route.duration,aspect_ratio:'9:16',quality:'high',resolution:route.resolution,firstFrame};
@@ -65,6 +92,6 @@ export async function produce(task:Task,providerOverride?:VideoGenerationProvide
   if(job.provider!==route.provider||job.model!==route.model)throw new Error('Saved provider/model differs; refusing to reroute');
   task.status=`GENERATING_${job.variantId}`;result.status='generating';task.logs.push({time:new Date().toISOString(),message:`${job.variantId}: ${job.provider} ${job.model} · ${job.request.duration}s`});await persist();
   try{await executeGeneration(job,provider,async()=>{job.updated_at=new Date().toISOString();result.providerTaskId=job.task_id;await persist();},async url=>{const file=`results/${job.variantId}.mp4`;if(provider.name==='mock')await validateVideo(path.join(root,file),job.request.duration);else await downloadVideo(url,path.join(root,file),job.request.duration);return mediaUrl(task.id,file);});result.status='completed';result.url=job.result_url;delete result.error;}
-  catch(error){job.status='FAILED';job.error=error instanceof Error?error.message:'Production failed';result.status='failed';result.error=job.error;}await persist();
+  catch(error){if(job.status!=='MANUAL_VERIFICATION_REQUIRED')job.status='FAILED';job.error=error instanceof Error?error.message:'Production failed';result.status='failed';result.error=job.error;}await persist();
  }
 }

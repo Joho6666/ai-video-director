@@ -1,4 +1,4 @@
-# AI Video Director v0.5 · Production Agent
+# AI Video Director v1.1 · Pi Video Agent
 
 上传参考视频、模特及商品图，经 DeepSeek Director 生成三份导演方案。生产模式增加成片首帧图，可勾选 V1/V2/V3 中的 1–3 条视频（默认 V1）。
 
@@ -43,7 +43,7 @@ Director 保留七文件白名单 ZIP。生产任务另含 director-plan.json、
 
 ## Provider 边界
 
-MiniMax、Wan (DashScope wanx2.1-i2v-plus) 和 Mock 已实现。Seedance 旧适配器保留为 legacy，Veo 为明确未实现的扩展入口。无质量 Agent、自动重试、自动换模型或批量系统。FFmpeg 16/24/32 帧是抽样静态图，不能证明完整运动路径。
+Pi Runtime 0.85.1 作为编排层接入，保留确定性 WorkflowScheduler 作为安全执行层。真实视觉 QC 会对生成视频抽帧后调用 DeepSeek，并保存带帧证据的质量报告；不能把抽样静态图当作完整运动路径证明。Wan 优先用于本机 Live 入口，MiniMax 可配置，Seedance 与 Veo 保留适配器但本轮不做 Live 验收。
 
 官方契约来源（已读取）：
 - https://platform.minimax.cn/docs/api-reference/video-generation-i2v

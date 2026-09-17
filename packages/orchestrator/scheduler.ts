@@ -6,7 +6,7 @@ import { projectDir, jsonWrite, saveTask } from '../shared/storage';
 import { createExportPackage } from '../shared/exports';
 import { routeProvider, resolveVideoRoute } from '../video-provider/router';
 import type { VideoGenerationProvider, VideoGenerationRequest } from '../video-provider/types';
-import { selectionSchema, productionPrompt, prepareFirstFrame } from '../agent/production';
+import { selectionSchema, productionPrompt, prepareFirstFrame, loadGenerationTasks } from '../agent/production';
 import {
   DirectorAgent,
   ProducerAgent,
@@ -21,6 +21,11 @@ export interface SchedulerOptions {
   providerOverride?: VideoGenerationProvider;
   env?: Record<string, string | undefined>;
   qualityOptions?: AgentContext['qualityOptions'];
+  maxRetries?: number;
+  /** Internal Pi tool flags; the public workflow still enters through VideoProductionWorkflow. */
+  skipPi?: boolean;
+  skipDirector?: boolean;
+  skipProducer?: boolean;
 }
 
 export class WorkflowScheduler {
@@ -46,7 +51,8 @@ export class WorkflowScheduler {
     };
 
     // 1. Director Agent Phase
-    await this.director.run(ctx);
+    if (!options.skipDirector) await this.director.run(ctx);
+    if(stateManager.currentStatus==='CREATED' && task.plan){stateManager.transition('ANALYZING','director','恢复已保存的导演方案');stateManager.transition('PLANNING','director','复用已完成的导演方案');}
     await persistState();
 
     // If running in agent/director mode, complete after planning
@@ -65,20 +71,17 @@ export class WorkflowScheduler {
       : resolveVideoRoute(task.appMode, task.taskType, options.env);
 
     if (!route) throw new Error('Director-only mode cannot produce video');
-    const producerDecision = this.producer.run(ctx);
+    const producerDecision = options.skipProducer
+      ? stateManager.currentLog.producer_decision || this.producer.run(ctx)
+      : this.producer.run(ctx);
     const provider = options.providerOverride || routeProvider(task.appMode, task.taskType, options.env);
     task.provider = route.provider;
 
     const selected = selectionSchema.parse(task.selectedVariants || ['V1']);
     task.selectedVariants = selected;
 
-    try {
-      task.generationTasks = JSON.parse(await readFile(path.join(root, 'generation-tasks.json'), 'utf8'));
-    } catch (e) {
-      if ((e as NodeJS.ErrnoException).code !== 'ENOENT') throw e;
-      task.generationTasks = [];
-    }
-    task.generationTasks ??= [];
+    task.generationTasks = await loadGenerationTasks(task);
+    if(task.generationTasks.length && stateManager.currentStatus==='FAILED')stateManager.resumeProduction();
 
     const firstFrame = task.appMode === 'full' && !task.generationTasks.length ? await prepareFirstFrame(task) : undefined;
 
@@ -125,17 +128,23 @@ export class WorkflowScheduler {
     await persistTasks();
 
     // 3. Generation & Quality Review Loop for each selected variant
-    for (const job of task.generationTasks.filter(j => selected.includes(j.variantId))) {
+    for (const selectedId of selected) {
+      let job = task.generationTasks.filter(j=>j.variantId===selectedId).at(-1)!;
+      if(job.provider!==provider.name || (!options.providerOverride && job.model!==route.model))throw new Error('Saved provider/model differs; refusing to reroute');
       const result = task.results.find(r => r.id === job.variantId)!;
       if (job.status === 'COMPLETED' && result.status === 'completed') {
         continue;
       }
 
-      let retryCount = 0;
+      let retryCount = job.attempt ?? stateManager.currentLog.retry_history.filter(r=>r.variantId===job.variantId).length;
+      if (!Number.isInteger(retryCount) || retryCount < 0 || retryCount > 2) {
+        throw new Error(`Invalid persisted retry attempt for ${job.variantId}; refusing to spend outside budget`);
+      }
+      const maxRetries=Math.min(2,Math.max(0,options.maxRetries??2));
       let passed = false;
       let finalVideoPath = '';
 
-      while (!passed && retryCount <= 2) {
+      while (!passed && retryCount <= maxRetries) {
         stateManager.transition('GENERATING', 'generator', `${job.variantId} (轮次 ${retryCount}): 调用 ${provider.name} 视频生成`);
         task.status = 'GENERATING';
         result.status = 'generating';
@@ -147,7 +156,7 @@ export class WorkflowScheduler {
           });
           result.url = job.result_url;
         } catch (error) {
-          job.status = 'FAILED';
+          if(job.status!=='MANUAL_VERIFICATION_REQUIRED')job.status = 'FAILED';
           job.error = error instanceof Error ? error.message : 'Generation failed';
           result.status = 'failed';
           result.error = job.error;
@@ -161,6 +170,7 @@ export class WorkflowScheduler {
         await persistTasks();
 
         const qualityReport = await this.quality.evaluate(ctx, job.variantId, finalVideoPath, retryCount);
+        job.quality_passed=qualityReport.passed;
         result.qualityScore = qualityReport.overall_score;
         result.qualityFeedback = qualityReport.issues.length ? qualityReport.issues : ['质量审核通过'];
         if (qualityReport.passed) {
@@ -171,21 +181,37 @@ export class WorkflowScheduler {
           break;
         }
 
+        // Only an evidence-backed, repairable visual defect may enter the
+        // paid retry path. Uncertainty and QC transport/schema failures never
+        // reach this branch (they throw), while a valid report with
+        // retry_required=false must stop and preserve the downloaded video.
+        if (qualityReport.retry_required !== true) {
+          result.status = 'failed';
+          result.error = 'Visual quality did not pass; no evidence-backed repair is eligible for retry';
+          await persistTasks();
+          break;
+        }
+
         // 5. Retry Agent Phase if failed
-        if (retryCount < 2) {
+        if (retryCount < maxRetries) {
           stateManager.transition('RETRYING', 'retry', `${job.variantId}: 质量未达标 (${qualityReport.overall_score}分)，Retry Agent 调优提示词`);
           task.status = 'RETRYING';
           await persistTasks();
 
-          const retryResult = this.retry.refine(ctx, qualityReport, job, retryCount);
+          const nextJob={...job,id:randomUUID(),attempt:retryCount+1,previous_attempt_id:job.id,request:{...job.request},created_at:new Date().toISOString(),updated_at:new Date().toISOString()};
+          const retryResult = this.retry.refine(ctx, qualityReport, nextJob, retryCount);
           if (retryResult.can_retry) {
+            delete nextJob.result_url;delete nextJob.quality_passed;
+            task.generationTasks.push(nextJob);job=nextJob;
             retryCount = retryResult.attempt;
+            await persistTasks();
           } else {
             break;
           }
         } else {
           // Reached max retries, mark as completed with quality notes or failed
-          result.status = 'completed'; // Video was produced despite QC warnings
+          result.status = 'failed';
+          result.error='Visual quality did not pass within retry budget';
           break;
         }
       }
@@ -199,7 +225,7 @@ export class WorkflowScheduler {
     const log = stateManager.currentLog;
     for (const [vId, reports] of Object.entries(log.quality_reports)) {
       const lastReport = reports[reports.length - 1];
-      if (lastReport && lastReport.overall_score > highestScore) {
+      if (lastReport?.passed && task.results.some(r=>r.id===vId&&r.status==='completed') && lastReport.overall_score > highestScore) {
         highestScore = lastReport.overall_score;
         bestVariant = vId as 'V1' | 'V2' | 'V3';
         rationale = `综合评分最高 (${highestScore}分)，` + (lastReport.recommendations[0] || '表现力均衡');
@@ -208,11 +234,11 @@ export class WorkflowScheduler {
 
     const finalRec: FinalRecommendation = {
       recommended_variant: bestVariant,
-      score: highestScore > 0 ? highestScore : 88,
+      score: highestScore,
       rationale,
     };
-    stateManager.setFinalRecommendation(finalRec);
-    task.finalRecommendation = finalRec;
+    if(highestScore>=0){stateManager.setFinalRecommendation(finalRec);task.finalRecommendation = finalRec;}
+    else delete task.finalRecommendation;
 
     // 7. Finalize & Export
     const evidenceRaw = await readFile(path.join(root, 'reference-evidence.json'), 'utf8');
@@ -220,8 +246,8 @@ export class WorkflowScheduler {
     await createExportPackage(task, root, { reference_evidence: evidence });
 
     if (task.results.some(r => r.status === 'failed')) {
-      stateManager.transition('COMPLETED', 'orchestrator', '部分视频生成成功；已记录质量报告与最终推荐');
-      task.status = 'COMPLETED';
+      stateManager.transition('FAILED', 'orchestrator', '存在未通过的视频；已保留成功结果与审核记录');
+      task.status = 'FAILED';
     } else {
       stateManager.transition('COMPLETED', 'orchestrator', `全流程视频生产与审核已完成，最终推荐 ${bestVariant}`);
       task.status = 'COMPLETED';
@@ -229,7 +255,7 @@ export class WorkflowScheduler {
 
     task.logs.push({
       time: new Date().toISOString(),
-      message: `Pi Agent 生产完成！推荐首选版本: ${bestVariant} (${rationale})`,
+      message: highestScore>=0?`生产完成，推荐 ${bestVariant} (${rationale})`:'没有通过审核的推荐视频',
     });
     await persistTasks();
   }

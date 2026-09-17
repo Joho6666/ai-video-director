@@ -16,6 +16,19 @@ export function evaluateRetrySkill(
   request: VideoGenerationRequest,
   currentRetryCount = 0
 ): RetryEvaluationResult {
+  // A retry is only safe when the visual QC server explicitly identified an
+  // evidence-backed, repairable defect. Network/auth/JSON failures and
+  // uncertainty deliberately set retry_required=false and must never trigger
+  // another paid generation request.
+  if (report.retry_required !== true) {
+    return {
+      can_retry: false,
+      attempt: currentRetryCount,
+      refined_prompt: request.prompt,
+      strategy: '没有证据支持的可修复视觉缺陷，禁止付费重试',
+      reason: 'RETRY_NOT_REQUIRED',
+    };
+  }
   if (currentRetryCount >= MAX_RETRIES_PER_VARIANT) {
     return {
       can_retry: false,

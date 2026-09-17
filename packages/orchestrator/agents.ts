@@ -1,4 +1,5 @@
 import nodePath from 'node:path';
+import {copyFile,mkdir} from 'node:fs/promises';
 import type { Task } from '../shared/types';
 import { projectDir, jsonWrite, saveTask, mediaUrl } from '../shared/storage';
 import { preprocess } from '../video-analysis';
@@ -43,7 +44,7 @@ export class DirectorAgent {
 
     const config = resolveAppConfig(ctx.env);
     await jsonWrite(nodePath.join(root, 'runtime.json'), {
-      version: '0.5.0',
+      version: '1.1.0',
       app_mode: task.appMode,
       director: task.director,
       video_provider: task.provider,
@@ -134,7 +135,11 @@ export class GeneratorAgent {
       }
     );
 
-    return nodePath.join(root, `results/${job.variantId}.mp4`);
+    const archive=nodePath.join(root,'attempts',job.id);
+    await mkdir(archive,{recursive:true});
+    const archiveFile=nodePath.join(archive,'video.mp4');
+    await copyFile(nodePath.join(root, `results/${job.variantId}.mp4`),archiveFile);
+    return archiveFile;
   }
 }
 
@@ -150,7 +155,16 @@ export class QualityAgent {
     const { task, stateManager, qualityOptions } = ctx;
     const variant = task.plan!.variants.find(v => v.id === variantId)!;
     const opt = qualityOptions?.[variantId];
-    const report = await evaluateQualitySkill(filePath, variant, attempt, opt);
+    const report = await evaluateQualitySkill(filePath, variant, attempt, {
+      ...opt,
+      task,
+      // A retry is a new immutable GenerationTask. QC must describe the exact
+      // prompt and duration used for the current attempt, never the first
+      // attempt returned by Array.find().
+      actualRequest: { prompt: task.generationTasks?.filter(j => j.variantId === variantId).at(-1)?.request.prompt || variant.seedance_prompt, duration: task.generationTasks?.filter(j => j.variantId === variantId).at(-1)?.request.duration || 8 },
+      env: ctx.env,
+      mode: task.appMode === 'mock' ? 'mock' : 'visual',
+    });
     stateManager.recordQualityReport(variantId, report);
 
     task.logs.push({

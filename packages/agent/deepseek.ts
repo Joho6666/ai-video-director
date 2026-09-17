@@ -24,6 +24,16 @@ async function normalizedJpeg(source:string,target:string,maxEdge:number){await 
 export function validateEvidenceFrameIds(evidence:z.infer<typeof referenceEvidenceSchema>,validIds:Set<string>){for(const item of Object.values(evidence))for(const id of item.frame_ids)if(!validIds.has(id))throw new Error(`DeepSeek 引用了不存在的帧：${id}`);}
 const analysisEvidenceMap={scene:'scene',shot_size:'shot_size',camera_position:'camera_height',camera_angle:'camera_angle',camera_motion:'camera_motion',subject_trajectory:'subject_trajectory',actions:'action_sequence',lighting:'lighting',rhythm:'rhythm'} as const;
 export function isUnknownClaim(value:string){return /unknown|未知|未见|无法确认|不确定|not visible|not observable|cannot determine|unable to determine/i.test(value.trim());}
+type UnknownConflict={index:number;field:string;evidenceField:string};
+export function findUnknownTreatmentConflicts(treatment:unknown,evidence:z.infer<typeof referenceEvidenceSchema>):UnknownConflict[]{
+ const analyses=(treatment as {reference_analysis?:Array<Record<string,unknown>>})?.reference_analysis||[];
+ const conflicts:UnknownConflict[]=[];
+ for(const [index,analysis] of analyses.entries())for(const [field,evidenceField] of Object.entries(analysisEvidenceMap)){
+  const item=evidence[evidenceField as keyof typeof evidence];
+  if(item.status==='Unknown'&&typeof analysis[field]==='string'&&!isUnknownClaim(analysis[field] as string))conflicts.push({index,field,evidenceField});
+ }
+ return conflicts;
+}
 /**
  * DeepSeek occasionally returns an Unknown product source while leaving a
  * definite-looking feature label in place. Preserve the hard fact boundary at
@@ -49,6 +59,25 @@ export function validateEvidenceAgainstTreatment(treatment:unknown,evidence:z.in
   if(!sources.length||sources.some(source=>source!=='Unknown'&&source!=='user_requirement'&&!validProductIds.has(source)))throw new Error(`${variant.id} product_showcase evidence 来源无效`);
   if(sources.includes('Unknown')&&!/^unknown\b|^未知/i.test(item.feature.trim()))throw new Error(`${variant.id} Unknown 商品事实必须在 feature 中明确标注 Unknown`);
  }
+}
+function cloneAndMask(value:unknown,paths:Set<string>,prefix=''):unknown{
+ if(Array.isArray(value))return value.map((item,index)=>cloneAndMask(item,paths,prefix?`${prefix}.${index}`:String(index)));
+ if(value&&typeof value==='object')return Object.fromEntries(Object.entries(value).map(([key,item])=>{const next=prefix?`${prefix}.${key}`:key;return [key,paths.has(next)?'__REPAIR_ALLOWED_FIELD__':cloneAndMask(item,paths,next)];}));
+ return value;
+}
+function readPath(value:unknown,pathParts:string[]):unknown{let current=value;for(const part of pathParts){if(!current||typeof current!=='object')return undefined;current=(current as Record<string,unknown>)[part];}return current;}
+async function repairUnknownConflicts(client:OpenAI,rawTreatment:unknown,conflicts:UnknownConflict[],skillText:string){
+ const response=await client.chat.completions.create({model:process.env.DEEPSEEK_MODEL||'deepseek-flash',stream:false,max_tokens:16384,response_format:{type:'json_object'},messages:[
+  {role:'system',content:`You are a constrained JSON repair worker. The Director output below conflicts with Evidence marked Unknown. Return exactly {"treatment":<object>} and no other keys. Change ONLY the listed reference_analysis array fields to the exact string "Unknown: not visible in sampled frames". Preserve every other key, array item, value, order and character. Do not add claims. This is a one-time repair; do not reinterpret Evidence. The original Director Skill context is supplied only to preserve shape.\n${skillText}`},
+  {role:'user',content:JSON.stringify({treatment:rawTreatment,fields:conflicts.map(c=>`reference_analysis.${c.index}.${c.field}`)})},
+ ]} as OpenAI.Chat.Completions.ChatCompletionCreateParamsNonStreaming);
+ const choice=response.choices[0];if(!choice||choice.finish_reason!=='stop'||!choice.message.content?.trim())throw new Error('Director repair returned empty or incomplete JSON');
+ let parsed:unknown;try{parsed=JSON.parse(choice.message.content);}catch{throw new Error('Director repair returned invalid JSON');}
+ const wrapper=z.object({treatment:z.unknown()}).strict().parse(parsed);const repaired=wrapper.treatment;
+ const paths=new Set(conflicts.map(c=>`reference_analysis.${c.index}.${c.field}`));
+ if(JSON.stringify(cloneAndMask(rawTreatment,paths))!==JSON.stringify(cloneAndMask(repaired,paths)))throw new Error('Director repair modified frozen fields');
+ for(const conflict of conflicts){const value=readPath(repaired,['reference_analysis',String(conflict.index),conflict.field]);if(typeof value!=='string'||!isUnknownClaim(value))throw new Error(`Director repair did not mark ${conflict.evidenceField} as Unknown`);}
+ return {treatment:repaired,id:response.id};
 }
 export async function buildDeepSeekInput(task:Task){
  const root=projectDir(task.id);const frames:Frame[]=JSON.parse(await readFile(path.join(root,'reference','frames.json'),'utf8'));
@@ -77,8 +106,12 @@ export class DeepSeekDirectorAdapter implements AgentAdapter {
   const response=await client.chat.completions.create({model:process.env.DEEPSEEK_MODEL||'deepseek-flash',stream:false,max_tokens:16384,response_format:{type:'json_object'},messages:[{role:'system',content:`You are the AI Commercial Video Director. Follow this read-only skill exactly. Output valid JSON only.\n${skill.text}\n\n${directorOutputContract()}`},{role:'user',content:input.content}],thinking:{type:'disabled'}} as OpenAI.Chat.Completions.ChatCompletionCreateParamsNonStreaming);
   const choice=response.choices[0];if(!choice)throw new Error('DeepSeek 未返回结果');if(choice.finish_reason==='length')throw new Error('DeepSeek JSON 被 token 限制截断');if(choice.finish_reason!=='stop')throw new Error(`DeepSeek 异常结束：${choice.finish_reason}`);
   const text=choice.message.content;if(!text?.trim())throw new Error('DeepSeek 返回空 JSON');let raw:unknown;try{raw=JSON.parse(text);}catch{throw new Error('DeepSeek 返回内容不是有效 JSON');}
-  let envelope:z.infer<typeof deepSeekEnvelopeSchema>;try{envelope=deepSeekEnvelopeSchema.parse(raw);}catch(error){const keys=raw&&typeof raw==='object'?Object.keys(raw as object):[];throw new Error(`DeepSeek JSON Schema 校验失败；顶层键：${keys.join(',')||'none'}；${error instanceof Error?error.message:'未知错误'}`);}const supplements=normalizeUnknownProductShowcase(envelope.supplements);validateEvidenceFrameIds(envelope.reference_evidence,new Set(input.frames.map(f=>f.id)));validateEvidenceAgainstTreatment(envelope.treatment,envelope.reference_evidence,supplements,new Set(task.assets.filter(a=>a.kind==='product').map((_,i)=>`product_${String(i+1).padStart(2,'0')}`)));
-  const compiled=await compileTreatment(task,envelope.treatment,supplements,'live');
-  return {...compiled,evidence:envelope.reference_evidence,requestMeta:{id:response.id,model:response.model,duration_ms:Date.now()-started,image_count:input.content.filter(x=>x.type==='image_url').length,image_bytes:input.imageBytes,frame_count:input.frames.length,usage:response.usage}};
+  let envelope:z.infer<typeof deepSeekEnvelopeSchema>;try{envelope=deepSeekEnvelopeSchema.parse(raw);}catch(error){const keys=raw&&typeof raw==='object'?Object.keys(raw as object):[];throw new Error(`DeepSeek JSON Schema 校验失败；顶层键：${keys.join(',')||'none'}；${error instanceof Error?error.message:'未知错误'}`);}const supplements=normalizeUnknownProductShowcase(envelope.supplements);validateEvidenceFrameIds(envelope.reference_evidence,new Set(input.frames.map(f=>f.id)));
+  const productIds=new Set(task.assets.filter(a=>a.kind==='product').map((_,i)=>`product_${String(i+1).padStart(2,'0')}`));
+  const conflicts=findUnknownTreatmentConflicts(envelope.treatment,envelope.reference_evidence);let treatment=envelope.treatment;let repairMeta:Record<string,unknown>|undefined;
+  if(conflicts.length){const repair=await repairUnknownConflicts(client,envelope.treatment,conflicts,skill.text);treatment=repair.treatment;repairMeta={id:repair.id,fields:conflicts.map(c=>`reference_analysis.${c.index}.${c.field}`)};}
+  validateEvidenceAgainstTreatment(treatment,envelope.reference_evidence,supplements,productIds);
+  const compiled=await compileTreatment(task,treatment,supplements,'live');
+  return {...compiled,evidence:envelope.reference_evidence,requestMeta:{id:response.id,model:response.model,duration_ms:Date.now()-started,image_count:input.content.filter(x=>x.type==='image_url').length,image_bytes:input.imageBytes,frame_count:input.frames.length,usage:response.usage,...(repairMeta?{repair:repairMeta}:{})}};
  }
 }

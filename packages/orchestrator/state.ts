@@ -46,6 +46,20 @@ export interface FinalRecommendation {
   rationale: string;
 }
 
+export interface PiEventRecord {
+  type: string;
+  turn: number;
+  toolName?: string;
+  toolCallId?: string;
+  model?: string;
+  provider?: string;
+  responseId?: string;
+  usage?: { input: number; output: number; cacheRead: number; cacheWrite: number; totalTokens: number };
+  isError?: boolean;
+  resultSummary?: string;
+  timestamp: string;
+}
+
 export interface AgentRunLog {
   workflow_id: string;
   task_id: string;
@@ -69,6 +83,7 @@ export interface AgentRunLog {
   producer_decision?: ProducerDecision;
   quality_reports: Record<string, QualityReport[]>;
   retry_history: RetryRecord[];
+  pi_events?: PiEventRecord[];
   final_recommendation?: FinalRecommendation;
   error?: string;
 }
@@ -111,6 +126,7 @@ export class WorkflowStateManager {
       transitions: [],
       quality_reports: {},
       retry_history: [],
+      pi_events: [],
     };
   }
 
@@ -119,8 +135,11 @@ export class WorkflowStateManager {
     try {
       const raw = await readFile(path.join(root, 'agent-run.json'), 'utf8');
       const parsed = JSON.parse(raw) as AgentRunLog;
+      if(parsed.task_id!==taskId || !['CREATED','ANALYZING','PLANNING','GENERATING','REVIEWING','RETRYING','COMPLETED','FAILED'].includes(parsed.status) || !Array.isArray(parsed.transitions) || !Array.isArray(parsed.retry_history) || !parsed.quality_reports || typeof parsed.quality_reports!=='object' || (parsed.pi_events!==undefined&&!Array.isArray(parsed.pi_events)))throw new Error('Invalid persisted agent-run state; refusing to reset');
+      parsed.pi_events ??= [];
       return new WorkflowStateManager(taskId, appMode, parsed);
-    } catch {
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
       return new WorkflowStateManager(taskId, appMode);
     }
   }
@@ -179,6 +198,14 @@ export class WorkflowStateManager {
     this.log.retry_count = this.log.retry_history.length;
   }
 
+  recordPiEvent(event: Omit<PiEventRecord, 'timestamp'>): void {
+    this.log.pi_events ??= [];
+    this.log.pi_events.push({ ...event, timestamp: new Date().toISOString() });
+    // Keep persisted audit data bounded even if a model repeatedly emits
+    // lifecycle events before the workflow fails.
+    if (this.log.pi_events.length > 256) this.log.pi_events.splice(0, this.log.pi_events.length - 256);
+  }
+
   setFinalRecommendation(rec: FinalRecommendation): void {
     this.log.final_recommendation = rec;
   }
@@ -186,6 +213,13 @@ export class WorkflowStateManager {
   setError(err: string): void {
     this.log.error = err;
     this.transition('FAILED', 'orchestrator', `任务执行失败: ${err}`);
+  }
+
+  resumeProduction(): void {
+    if(this.log.status!=='FAILED')return;
+    this.log.transitions.push({from:'FAILED',to:'GENERATING',agent:'orchestrator',timestamp:new Date().toISOString(),message:'显式恢复持久任务；只继续既有提交或已分配尝试'});
+    this.log.status='GENERATING';
+    delete this.log.error;
   }
 
   async persist(): Promise<void> {

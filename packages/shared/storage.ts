@@ -18,6 +18,20 @@ export async function reserveIdempotency(key:string,fingerprint:string,id:string
 
 export async function acquireTaskLock(id:string){
  const file=path.join(projectDir(id),'run.lock');
- try{const handle=await open(file,'wx');await handle.writeFile(JSON.stringify({owner:randomUUID(),pid:process.pid,startedAt:new Date().toISOString()}));return async()=>{await handle.close();await unlink(file).catch(()=>{});};}
- catch(error){if((error as NodeJS.ErrnoException).code==='EEXIST')return null;throw error;}
+ const create=async()=>{
+  const owner=randomUUID();const handle=await open(file,'wx');
+  try{await handle.writeFile(JSON.stringify({owner,pid:process.pid,startedAt:new Date().toISOString()}));}finally{await handle.close();}
+  return async()=>{try{const current=JSON.parse(await readFile(file,'utf8'));if(current.owner===owner)await unlink(file);}catch(error){if((error as NodeJS.ErrnoException).code!=='ENOENT')throw error;}};
+ };
+ try{return await create();}catch(error){if((error as NodeJS.ErrnoException).code!=='EEXIST')throw error;}
+ // Serialize stale-owner recovery. An alive or unverifiable owner is never evicted.
+ let recovery;try{recovery=await open(file+'.recovery','wx');}catch(error){if((error as NodeJS.ErrnoException).code==='EEXIST')return null;throw error;}
+ try{
+  const current=JSON.parse(await readFile(file,'utf8')) as {pid?:number};
+  if(!Number.isInteger(current.pid)||!current.pid||current.pid<1)return null;
+  try{process.kill(current.pid,0);return null;}catch(error){if((error as NodeJS.ErrnoException).code!=='ESRCH')return null;}
+  await unlink(file);
+  try{return await create();}catch(error){if((error as NodeJS.ErrnoException).code==='EEXIST')return null;throw error;}
+ }catch(error){if((error as NodeJS.ErrnoException).code==='ENOENT')return null;throw error;}
+ finally{await recovery.close();await unlink(file+'.recovery').catch(()=>{});}
 }
