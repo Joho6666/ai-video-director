@@ -1,7 +1,12 @@
 import type {GenerationTask} from '../video-provider/types';
 import { z } from 'zod';
-export const statuses = ['UPLOADED','ANALYZING_REFERENCE','EXTRACTING_SHOT_DNA','PLANNING_VARIANTS','GENERATING_V1','GENERATING_V2','GENERATING_V3','COMPLETED','FAILED'] as const;
+
+export const workflowStatuses = ['CREATED','ANALYZING','PLANNING','GENERATING','REVIEWING','RETRYING','COMPLETED','FAILED'] as const;
+export type WorkflowStatus = typeof workflowStatuses[number];
+export const legacyStatuses = ['UPLOADED','ANALYZING_REFERENCE','EXTRACTING_SHOT_DNA','PLANNING_VARIANTS','GENERATING_V1','GENERATING_V2','GENERATING_V3'] as const;
+export const statuses = ['CREATED','ANALYZING','PLANNING','GENERATING','REVIEWING','RETRYING','COMPLETED','FAILED','UPLOADED','ANALYZING_REFERENCE','EXTRACTING_SHOT_DNA','PLANNING_VARIANTS','GENERATING_V1','GENERATING_V2','GENERATING_V3'] as const;
 export type Status = typeof statuses[number];
+
 export type Asset = { name: string; file: string; mime: string; kind: 'reference'|'model'|'product'|'first_frame' };
 export type Metadata = { duration: number; fps: number; width: number; height: number; frameCount: number };
 export const showcaseSchema=z.object({feature:z.string().min(1),action:z.string().min(1),camera_focus:z.string().min(1),evidence:z.string().min(1)});
@@ -20,7 +25,29 @@ export const planSchema = z.object({ video_generation:videoGenerationSchema.opti
 });
 export type Variant = z.infer<typeof variantSchema>;
 export type Plan = z.infer<typeof planSchema>;
-export type Result = { id:string; name:string; status:'waiting'|'generating'|'completed'|'failed'; providerTaskId?:string; url?:string; error?:string };
-export type AppMode='mock'|'director'|'full';
-export type Task = { id:string; project_id:string; createdAt:string; updatedAt:string; requirement:string; assets:Asset[]; status:Status; appMode:AppMode; provider:'mock'|'seedance'|'minimax'|'wan'|null; director:'mock'|'deepseek'; idempotencyKey?:string; logs:{time:string;message:string}[]; results:Result[]; taskType?:'fashion'|'ecommerce';selectedVariants?:Array<'V1'|'V2'|'V3'>;generationTasks?:GenerationTask[];metadata?:Metadata; plan?:Plan; error?:string };
+export type Result = { id:string; name:string; status:'waiting'|'generating'|'completed'|'failed'; providerTaskId?:string; url?:string; error?:string; qualityScore?:number; qualityFeedback?:string[] };
+export type AppMode='mock'|'agent'|'director'|'full';
+export type Task = {
+  id:string;
+  project_id:string;
+  createdAt:string;
+  updatedAt:string;
+  requirement:string;
+  assets:Asset[];
+  status:Status;
+  appMode:AppMode;
+  provider:'mock'|'seedance'|'minimax'|'wan'|'veo'|null;
+  director:'mock'|'deepseek';
+  idempotencyKey?:string;
+  logs:{time:string;message:string}[];
+  results:Result[];
+  taskType?:'fashion'|'ecommerce';
+  selectedVariants?:Array<'V1'|'V2'|'V3'>;
+  generationTasks?:GenerationTask[];
+  metadata?:Metadata;
+  plan?:Plan;
+  error?:string;
+  workflow_id?:string;
+  finalRecommendation?:{recommended_variant:'V1'|'V2'|'V3';score:number;rationale:string};
+};
 export interface VideoQCProvider { evaluate(videoUrl:string):Promise<{passed:boolean;issues:string[]}> }
