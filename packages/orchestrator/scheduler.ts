@@ -235,7 +235,18 @@ export class WorkflowScheduler {
         task.status = 'REVIEWING';
         await persistTasks();
 
-        const qualityReport = await this.quality.evaluate(ctx, job.variantId, finalVideoPath, retryCount);
+        let qualityReport;
+        try {
+          qualityReport = await this.quality.evaluate(ctx, job.variantId, finalVideoPath, retryCount);
+        } catch (error) {
+          // The video has already been downloaded, so retain its URL while
+          // making the QC transport/schema failure explicit. A failed QC must
+          // never leave the card looking as if generation is still running.
+          result.status = 'failed';
+          result.error = error instanceof Error ? `质量审核失败：${error.message}` : '质量审核失败';
+          await persistTasks();
+          break;
+        }
         job.quality_passed=qualityReport.passed;
         result.qualityScore = qualityReport.overall_score;
         result.qualityFeedback = qualityReport.issues.length ? qualityReport.issues : ['质量审核通过'];

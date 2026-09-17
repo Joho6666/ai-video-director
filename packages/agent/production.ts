@@ -54,9 +54,14 @@ export function productionPrompt(variant:Variant,duration:number){
  return {prompt:prompt.length+details.length<=2000?prompt+details:prompt,timeline};
 }
 export async function prepareFirstFrame(task:Task){
- const asset=task.assets.find(a=>a.kind==='first_frame');if(!asset)throw new Error('Full mode requires 成片首帧图');
+ const asset=task.assets.find(a=>a.kind==='first_frame');
+ const reference=task.assets.find(a=>a.kind==='reference');
+ const source=asset||reference;
+ if(!source)throw new Error('Full mode requires a reference video or first-frame image');
  const root=projectDir(task.id);await mkdir(path.join(root,'production'),{recursive:true});const file='production/first-frame.jpg';
- await mediaExec(ffmpeg,['-hide_banner','-loglevel','error','-y','-i',path.join(root,asset.file),'-vf','scale=1080:1920:force_original_aspect_ratio=decrease,pad=1080:1920:(ow-iw)/2:(oh-ih)/2','-frames:v','1','-q:v','3',path.join(root,file)]);
+ // A dedicated first frame takes precedence. If omitted, derive one from the
+ // reference video so video + reference images can start production directly.
+ await mediaExec(ffmpeg,['-hide_banner','-loglevel','error','-y','-i',path.join(root,source.file),'-vf','scale=1080:1920:force_original_aspect_ratio=decrease,pad=1080:1920:(ow-iw)/2:(oh-ih)/2','-frames:v','1','-q:v','3',path.join(root,file)]);
  const bytes=await readFile(path.join(root,file));return {id:'first_frame_01',file,sha256:createHash('sha256').update(bytes).digest('hex')};
 }
 export async function validateVideo(file:string,duration:number){

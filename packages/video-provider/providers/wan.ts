@@ -42,7 +42,6 @@ export class WanProvider implements VideoGenerationProvider {
   }
  }
  private async request(endpoint:string,body?:unknown,isSubmit=false):Promise<DashscopeResponseBody>{
-  let response:Response;
   const headers:Record<string,string>={
    Authorization:`Bearer ${this.config.key}`,
    'Content-Type':'application/json'
@@ -50,23 +49,33 @@ export class WanProvider implements VideoGenerationProvider {
   if(isSubmit){
    headers['X-DashScope-Async']='enable';
   }
-  try{
-   response=await this.transport(this.config.base.replace(/\/$/,'')+endpoint,{
-    method:body?'POST':'GET',
-    headers,
-    body:body?JSON.stringify(body):undefined,
-    signal:AbortSignal.timeout(60_000),
-    redirect:'error'
-   });
-  }catch{
-   throw new Error(body?'Wan submission outcome unknown; manual verification required; no resubmission':'Wan query connection failed');
+  // A generation submission is deliberately single shot: a timeout leaves
+  // the durable submission intent in place and must never be retried. Status
+  // reads are different: retrying a GET is safe because it cannot create a
+  // second paid task, and DashScope occasionally drops a long-poll request.
+  const attempts=isSubmit?1:3;
+  for(let attempt=0;attempt<attempts;attempt++){
+   try{
+    const response=await this.transport(this.config.base.replace(/\/$/,'')+endpoint,{
+     method:body?'POST':'GET',
+     headers,
+     body:body?JSON.stringify(body):undefined,
+     signal:AbortSignal.timeout(120_000),
+     redirect:'error'
+    });
+    if(!response.ok)throw new Error(`Wan HTTP ${response.status}`);
+    const data=await response.json() as DashscopeResponseBody;
+    if(data.code&&data.code!=='200'&&data.code!=='Success'){
+     throw new Error(`Wan business error ${data.code}: ${data.message||'unknown'}`);
+    }
+    return data;
+   }catch(error){
+    if(attempt+1<attempts){await new Promise(resolve=>setTimeout(resolve,500*(attempt+1)));continue;}
+    if(error instanceof Error && (error.message.startsWith('Wan HTTP ')||error.message.startsWith('Wan business error ')))throw error;
+    throw new Error(body?'Wan submission outcome unknown; manual verification required; no resubmission':'Wan query connection failed');
+   }
   }
-  if(!response.ok)throw new Error(`Wan HTTP ${response.status}`);
-  const data=await response.json() as DashscopeResponseBody;
-  if(data.code&&data.code!=='200'&&data.code!=='Success'){
-   throw new Error(`Wan business error ${data.code}: ${data.message||'unknown'}`);
-  }
-  return data;
+  throw new Error('Wan query connection failed');
  }
  async createTask(input:VideoGenerationRequest){
   if(input.model!==this.config.model||input.duration!==5||input.resolution!=='720P'||input.aspect_ratio!=='9:16'||input.mode!=='image-to-video')throw new Error('Wan capability mismatch');

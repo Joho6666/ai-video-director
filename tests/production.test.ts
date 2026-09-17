@@ -28,6 +28,17 @@ test('first frame is letterboxed to 1080x1920 and export directory symlinks reje
  const outside=path.join(projectDir(randomUUID()),'outside');await mkdir(outside,{recursive:true});await symlink(outside,path.join(root,'exports'),'junction');task.plan={} as Task['plan'];await assert.rejects(()=>createExportPackage(task,root,{reference_evidence:{}}),/symlink/);
 });
 
+test('full production derives a first frame from the reference video when omitted',async()=>{
+ const id=randomUUID(),root=projectDir(id);await mkdir(path.join(root,'uploads'),{recursive:true});
+ await mediaExec(ffmpeg,['-hide_banner','-loglevel','error','-y','-f','lavfi','-i','color=c=green:size=640x360','-t','1','-pix_fmt','yuv420p',path.join(root,'uploads/reference.mp4')]);
+ const task={id,assets:[{kind:'reference',file:'uploads/reference.mp4'}]} as Task;
+ const frame=await prepareFirstFrame(task);
+ assert.equal(frame.id,'first_frame_01');
+ assert.equal(frame.file,'production/first-frame.jpg');
+ assert.equal(frame.sha256.length,64);
+ assert.ok((await readFile(path.join(root,frame.file))).length>0);
+});
+
 test('partial production preserves successful variant and never resubmits ambiguous failure',async()=>{
  const id=randomUUID(),root=projectDir(id);await mkdir(path.join(root,'uploads'),{recursive:true});
  await mediaExec(ffmpeg,['-hide_banner','-loglevel','error','-y','-f','lavfi','-i','color=c=blue:size=360x640:rate=10','-t','8','-pix_fmt','yuv420p',path.join(root,'uploads/reference.mp4')]);

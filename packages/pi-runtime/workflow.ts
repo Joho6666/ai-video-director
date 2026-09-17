@@ -48,6 +48,13 @@ export async function runPiProduction(task: Task, stateManager: WorkflowStateMan
         if (stage !== 'generate') throw new Error('generation is out of order');
         try {
           await new WorkflowScheduler().run(task, stateManager, { ...options, skipPi: true, skipDirector: true, skipProducer: true, maxRetries: options.maxRetries ?? 1 });
+          const failedResult = task.results.find(result => result.status === 'failed');
+          if (failedResult) {
+            generationError = failedResult.error || 'Video generation or visual QC failed';
+            task.error = generationError;
+            await stateManager.persist();
+            await saveTask(task);
+          }
           stage = 'review';
           return { status: 'generated', results: task.results.map(r => ({ id: r.id, status: r.status })) };
         } catch (error) {
@@ -78,7 +85,8 @@ export async function runPiProduction(task: Task, stateManager: WorkflowStateMan
     { name: 'finalize_delivery', description: '确认导出与最终状态，保留失败报告并禁止无证据推荐。', ...empty, output: resultOutput,
       execute: async () => { if (stage !== 'finalize') throw new Error('finalize is out of order'); finalized = true; return { status: 'finalized', task_status: task.status, results: task.results.map(r => ({ id: r.id, status: r.status })) }; } },
   ];
-  const result = await runPiAgent({
+  try {
+   const result = await runPiAgent({
     systemPrompt: `You are Pi Video Agent orchestrator. Resume at the ${stage} stage and call exactly one allowed tool per turn. The normal order is analyze_reference, build_director_plan, select_video_provider, generate_video, review_video, then finalize_delivery. Never claim completion without calling the tools. The server enforces state and payment safety.`,
     prompt: `Run the production workflow for this task from the ${stage} stage. Use one tool per turn and stop only after finalize_delivery.`,
     tools,
@@ -94,6 +102,19 @@ export async function runPiProduction(task: Task, stateManager: WorkflowStateMan
     env: options.env,
     maxTurns: 24,
     timeoutMs: 30 * 60_000,
-  });
-  return result;
+   });
+   return result;
+  } catch (error) {
+   // If the guarded scheduler already persisted a provider or QC failure,
+   // preserve that actionable reason. A model suggesting a repair tool after
+   // the workflow entered its terminal review state must not replace it with
+   // the generic "invalid tool sequence" message.
+   if (task.status === 'FAILED' && (generationError || task.error)) {
+    task.error = generationError || task.error;
+    await stateManager.persist();
+    await saveTask(task);
+    return { turns: 0, model: process.env.DEEPSEEK_MODEL || 'deepseek-flash' };
+   }
+   throw error;
+  }
 }

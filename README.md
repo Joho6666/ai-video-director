@@ -8,9 +8,9 @@
 - `APP_MODE=mock`：离线流程演示，所有成片显著标注 DEMO ONLY。
 - `APP_MODE=full`：DeepSeek → Production Agent → Router → Wan / MiniMax → 本地 MP4。
 
-复制 `.env.example` 至 `.env.local`，填写需要的 Key。生产模式需要 DeepSeek 与视频 Provider Key（Wan 或 MiniMax）。通过 VIDEO_PROVIDER=wan|minimax 指定，或自动选用已配置的 Key。无 MiniMax 返回 Provider unavailable，不回退 Mock。旧 DIRECTOR_MODE、VIDEO_PROVIDER 不参与选择。
+复制 `.env.example` 至 `.env.local`，填写需要的 Key。生产模式需要 DeepSeek 与视频 Provider Key（Wan 或 MiniMax）。通过 VIDEO_PROVIDER=wan|minimax 指定，或自动选用已配置的 Key。无 MiniMax 返回 Provider unavailable，不回退 Mock。旧 DIRECTOR_MODE、VIDEO_PROVIDER 不参与选择。Full 模式可直接上传参考视频和模特／商品图；未提供独立首帧时，服务端从参考视频提取首帧作为 image-to-video 输入。 当前参考视频只用于 Director 视觉分析，Wan 的真实提交仍是 image-to-video；对已有视频做 video-to-video 优化尚未接入。
 
-MiniMax 已核实组合：`MiniMax-Hailuo-2.3`、1080P、6 秒，使用 `https://api.minimax.cn`。8 秒 Director timeline 按比例重排到 6 秒，再生成通用生产 Prompt。UI 在提交前显示实际组合；未核实的模型不接受提交。首帧需已包含人物与商品，自动补边至 1080×1920；不会将独立模特图和商品图伪装成多参考能力。
+MiniMax 已核实组合：`MiniMax-Hailuo-2.3`、1080P、6 秒，使用 `https://api.minimax.cn`。8 秒 Director timeline 按比例重排到 6 秒，再生成通用生产 Prompt。UI 在提交前显示实际组合；未核实的模型不接受提交。独立首帧图建议已包含人物与商品，服务端会自动补边至 1080×1920；未提供时 Full 模式从参考视频提取首帧作为 image-to-video 输入，不会将独立模特图和商品图伪装成多参考能力。打开 `/?new=1` 可开始一个不恢复最近任务的新视频任务。
 
 ```powershell
 npm install
