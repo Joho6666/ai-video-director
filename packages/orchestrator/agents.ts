@@ -11,7 +11,7 @@ import { evaluateProducerSkill, type ProducerDecision } from '../skills/producer
 import { evaluateQualitySkill, type QualityReport, type QualityEvaluationOptions } from '../skills/quality';
 import { evaluateRetrySkill, type RetryEvaluationResult } from '../skills/retry';
 import type { VideoGenerationProvider, GenerationTask } from '../video-provider/types';
-import { executeGeneration, downloadVideo, validateVideo } from '../agent/production';
+import { executeGeneration, downloadVideo, validateVideo, productionPrompt } from '../agent/production';
 import { WorkflowStateManager } from './state';
 
 export interface AgentContext {
@@ -161,7 +161,12 @@ export class QualityAgent {
       // A retry is a new immutable GenerationTask. QC must describe the exact
       // prompt and duration used for the current attempt, never the first
       // attempt returned by Array.find().
-      actualRequest: { prompt: task.generationTasks?.filter(j => j.variantId === variantId).at(-1)?.request.prompt || variant.seedance_prompt, duration: task.generationTasks?.filter(j => j.variantId === variantId).at(-1)?.request.duration || 8 },
+      actualRequest: (() => {
+        const current = task.generationTasks?.filter(j => j.variantId === variantId).at(-1);
+        const duration = current?.request.duration || 8;
+        const compiled = productionPrompt(variant, duration);
+        return { prompt: current?.request.prompt || compiled.prompt, duration, timeline: compiled.timeline };
+      })(),
       env: ctx.env,
       mode: task.appMode === 'mock' ? 'mock' : 'visual',
     });

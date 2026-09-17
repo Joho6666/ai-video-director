@@ -28,7 +28,16 @@ export function validateGenerationTasks(taskId:string,value:unknown):GenerationT
 }
 export async function loadGenerationTasks(task:Task):Promise<GenerationTask[]>{
  const file=path.join(projectDir(task.id),'generation-tasks.json');
- try{return validateGenerationTasks(task.id,JSON.parse(await readFile(file,'utf8')));}
+ try{
+  const ledger=validateGenerationTasks(task.id,JSON.parse(await readFile(file,'utf8')));
+  if(task.generationTasks!==undefined){
+   const embedded=validateGenerationTasks(task.id,task.generationTasks);
+   const stable=(value:unknown):unknown=>Array.isArray(value)?value.map(stable):value&&typeof value==='object'?Object.fromEntries(Object.entries(value as Record<string,unknown>).sort(([a],[b])=>a.localeCompare(b)).map(([key,item])=>[key,stable(item)])):value;
+   const canonical=(jobs:GenerationTask[])=>jobs.map(job=>JSON.stringify(stable(job))).sort();
+   if(JSON.stringify(canonical(embedded))!==JSON.stringify(canonical(ledger)))throw new Error('Persisted generation ledger disagrees with task.json; refusing ambiguous recovery');
+  }
+  return ledger;
+ }
  catch(error){
   if((error as NodeJS.ErrnoException).code!=='ENOENT')throw error;
   const productionStarted=Boolean(task.generationTasks?.length)||task.results.some(result=>result.status!=='waiting'||result.providerTaskId)||['GENERATING','REVIEWING','RETRYING','COMPLETED'].includes(task.status);

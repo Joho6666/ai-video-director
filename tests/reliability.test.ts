@@ -39,3 +39,6 @@ test('missing generation ledger fails closed after production evidence exists',a
 test('persisted attempt values are bounded before any paid execution',()=>{
  const f=fixture();const id=f.job.request.taskId;assert.throws(()=>validateGenerationTasks(id,[{...f.job,attempt:-1}]),/greater than or equal to 0|Invalid input/);assert.throws(()=>validateGenerationTasks(id,[{...f.job,attempt:3}]),/less than or equal to 2|Invalid input/);
 });
+test('task and generation ledgers must agree before recovery',async()=>{
+ const f=fixture();const id=randomUUID();f.job.request.taskId=id;const root=projectDir(id);await mkdir(root,{recursive:true});await writeFile(path.join(root,'generation-tasks.json'),JSON.stringify([f.job]));const task={id,project_id:id,createdAt:'now',updatedAt:'now',requirement:'test',assets:[],status:'FAILED',appMode:'full',provider:'wan',director:'deepseek',logs:[],results:[{id:'V1',name:'V1',status:'failed'}],generationTasks:[{...f.job,task_id:'different-remote'}]} as Task;await assert.rejects(()=>loadGenerationTasks(task),/disagrees with task\.json/);
+});

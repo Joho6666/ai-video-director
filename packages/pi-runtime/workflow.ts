@@ -13,7 +13,10 @@ import { saveTask } from '../shared/storage';
  * checkpoints have been persisted.
  */
 export async function runPiProduction(task: Task, stateManager: WorkflowStateManager, options: SchedulerOptions = {}) {
-  let stage: 'analyze'|'plan'|'provider'|'generate'|'review'|'refine'|'finalize' = task.plan ? 'provider' : 'analyze';
+  // A resumed task with a persisted generation ledger starts at generation;
+  // replaying Director or provider selection could otherwise be rejected by
+  // the server and leave recovery dependent on the model's guess.
+  let stage: 'analyze'|'plan'|'provider'|'generate'|'review'|'refine'|'finalize' = task.plan ? (task.generationTasks?.length ? 'generate' : 'provider') : 'analyze';
   let finalized = false;
   let generationError: string | undefined;
   const ctx = { task, stateManager, env: options.env, providerOverride: options.providerOverride, qualityOptions: options.qualityOptions };
@@ -61,15 +64,23 @@ export async function runPiProduction(task: Task, stateManager: WorkflowStateMan
         }
       } },
     { name: 'review_video', description: '确认每个选中版本已有真实 Quality Agent 报告；不接受模型文本自报。', ...empty, output: statusOutput,
-      execute: async () => { if (stage !== 'review') throw new Error('review is out of order'); const reports = Object.values(stateManager.currentLog.quality_reports).flat(); stage = 'finalize'; return { status: generationError ? 'failed' : 'reviewed', reports: reports.length, passed: reports.filter(r => r.passed).length }; } },
+      execute: async () => {
+        if (stage !== 'review') throw new Error('review is out of order');
+        const required = task.selectedVariants?.length ? task.selectedVariants : ['V1'];
+        const visualReports = Object.fromEntries(Object.entries(stateManager.currentLog.quality_reports).map(([id, reports]) => [id, reports.filter(report => report.evaluation_mode === 'visual')]));
+        const missing = required.filter(id => !visualReports[id]?.length);
+        const reports = Object.values(visualReports).flat();
+        stage = 'finalize';
+        return { status: generationError || missing.length ? 'incomplete' : 'reviewed', reports: reports.length, passed: reports.filter(r => r.passed).length, missing_reports: missing };
+      } },
     { name: 'refine_generation', description: '仅在真实 QC 有证据且安全 scheduler 尚未耗尽预算时确认靶向修正。', ...empty, output: statusOutput,
       execute: async () => { if (stage !== 'refine') throw new Error('refine is not required or is out of order'); throw new Error('Targeted refinement is executed only inside the guarded scheduler; no standalone paid retry is allowed'); } },
     { name: 'finalize_delivery', description: '确认导出与最终状态，保留失败报告并禁止无证据推荐。', ...empty, output: resultOutput,
       execute: async () => { if (stage !== 'finalize') throw new Error('finalize is out of order'); finalized = true; return { status: 'finalized', task_status: task.status, results: task.results.map(r => ({ id: r.id, status: r.status })) }; } },
   ];
   const result = await runPiAgent({
-    systemPrompt: 'You are Pi Video Agent orchestrator. Call exactly one tool per turn in this order: analyze_reference, build_director_plan, select_video_provider, generate_video, review_video, then finalize_delivery. Never claim completion without calling the tools. The server enforces state and payment safety.',
-    prompt: 'Run the production workflow for this task. Use one tool per turn and stop only after finalize_delivery.',
+    systemPrompt: `You are Pi Video Agent orchestrator. Resume at the ${stage} stage and call exactly one allowed tool per turn. The normal order is analyze_reference, build_director_plan, select_video_provider, generate_video, review_video, then finalize_delivery. Never claim completion without calling the tools. The server enforces state and payment safety.`,
+    prompt: `Run the production workflow for this task from the ${stage} stage. Use one tool per turn and stop only after finalize_delivery.`,
     tools,
     canExecute: async (name) => {
       const allowed: Record<typeof stage, string[]> = { analyze:['analyze_reference'], plan:['build_director_plan'], provider:['select_video_provider'], generate:['generate_video'], review:['review_video'], refine:['refine_generation'], finalize:['finalize_delivery'] };

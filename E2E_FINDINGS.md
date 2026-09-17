@@ -36,3 +36,6 @@ Pi tools must enforce these primitives too. A stored attempt must not be reset b
 - Persisted generation attempts are Zod-validated, bound to the task and limited to attempts 0–2 with duplicate attempt IDs/numbers rejected.
 - Pi catches provider/QC workflow errors, persists FAILED state, and continues through review and finalize_delivery; standalone refine calls are rejected unless the guarded scheduler owns the retry.
 - Pi assistant message events now retain sanitized model/provider/response ID and token usage fields.
+- Recovery prompts now start from the persisted provider/generation stage instead of replaying Director tools.
+- Visual QC receives the actual duration-rescaled production timeline; review marks missing visual reports incomplete.
+- 	ask.json and generation-tasks.json are compared before recovery, and /api/config exposes only its five approved public fields.

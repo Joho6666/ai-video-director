@@ -30,7 +30,7 @@ export interface QualityReport {
 }
 export interface QualityEvaluationOptions {
   simulatedScore?:number; simulatedIssues?:string[]; task?:Task; mode?:'mock'|'visual';
-  actualRequest?:{prompt:string;duration:number}; env?:Record<string,string|undefined>;
+  actualRequest?:{prompt:string;duration:number;timeline?:unknown[]}; env?:Record<string,string|undefined>;
 }
 export function qcFrameCount(duration:number){return duration<=10?16:24;}
 export function validateVisualQuality(raw:unknown,frameIds:Set<string>,referenceIds:Set<string>,variantId:QualityReport['variant_id'],attempt:number):QualityReport{
@@ -77,7 +77,12 @@ export async function evaluateQualitySkill(filePath:string,variant:Variant,attem
   await Promise.all(frames.map(async f=>{if(!(await stat(path.join(qcDir,f.file))).size)throw new Error('QC extraction produced an empty frame');}));
   await mediaExec(ffmpeg,['-hide_banner','-loglevel','error','-y','-i',path.join(qcDir,'frames','frame-%02d.jpg'),'-vf',`scale=200:200,tile=${count/4}x4`,'-frames:v','1',path.join(qcDir,'contact-sheet.jpg')]);
   await jsonWrite(path.join(qcDir,'frames.json'),frames);
-  const content:OpenAI.Chat.Completions.ChatCompletionContentPart[]=[{type:'text',text:JSON.stringify({variant,actual_request:options.actualRequest,video:{duration,width:stream.width,height:stream.height},timestamp_basis:'uniform sampling estimates, not exact decoded PTS'})}];
+  // The model must audit the actual generated duration. Replace the original
+  // Director timeline with the duration-rescaled timeline supplied by the
+  // production scheduler; retaining the eight-second source would misalign
+  // every QC beat for Wan (5s) and MiniMax (6s).
+  const auditVariant = options.actualRequest?.timeline ? { ...variant, timeline: options.actualRequest.timeline } : variant;
+  const content:OpenAI.Chat.Completions.ChatCompletionContentPart[]=[{type:'text',text:JSON.stringify({variant:auditVariant,actual_request:options.actualRequest,video:{duration,width:stream.width,height:stream.height},timestamp_basis:'uniform sampling estimates, not exact decoded PTS'})}];
   let imageBytes=0;
   const addImage=async(id:string,file:string)=>{const buffer=await readFile(file);imageBytes+=buffer.length;content.push({type:'text',text:id},{type:'image_url',image_url:{url:`data:image/jpeg;base64,${buffer.toString('base64')}`,detail:'auto'}});};
   for(const frame of frames)await addImage(`${frame.id} timestamp=${frame.timestamp}s`,path.join(qcDir,frame.file));
