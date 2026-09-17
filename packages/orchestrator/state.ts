@@ -99,7 +99,10 @@ export function isValidTransition(from: WorkflowStatus, to: WorkflowStatus): boo
     GENERATING: ['REVIEWING', 'FAILED'],
     REVIEWING: ['RETRYING', 'GENERATING', 'COMPLETED', 'FAILED'],
     RETRYING: ['GENERATING', 'FAILED'],
-    COMPLETED: [],
+    // A completed task can be reopened only for a persisted video that has
+    // not yet received a quality decision. This is a recovery transition,
+    // never a normal production path.
+    COMPLETED: ['REVIEWING'],
     FAILED: [],
   };
 

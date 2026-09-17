@@ -1,5 +1,5 @@
 import path from 'node:path';
-import { readFile } from 'node:fs/promises';
+import { readFile, stat } from 'node:fs/promises';
 import { randomUUID } from 'node:crypto';
 import type { Task } from '../shared/types';
 import { projectDir, jsonWrite, saveTask } from '../shared/storage';
@@ -26,6 +26,63 @@ export interface SchedulerOptions {
   skipPi?: boolean;
   skipDirector?: boolean;
   skipProducer?: boolean;
+}
+
+/**
+ * A downloaded video is not a completed deliverable until the current
+ * immutable generation attempt has a persisted quality decision. Checking
+ * both the run log and the on-disk report prevents a crash between those two
+ * writes from turning an unreviewed video into a completed task.
+ */
+export async function hasCurrentQualityReport(
+  task: Task,
+  stateManager: WorkflowStateManager,
+  job: { variantId: 'V1' | 'V2' | 'V3'; attempt?: number },
+): Promise<boolean> {
+  const attempt = job.attempt ?? 0;
+  const expectedMode = task.appMode === 'mock' ? 'mock' : 'visual';
+  const reports = stateManager.currentLog.quality_reports[job.variantId] ?? [];
+  const logged = reports.some(report =>
+    report.variant_id === job.variantId &&
+    report.attempt === attempt &&
+    report.evaluation_mode === expectedMode &&
+    report.passed === true,
+  );
+  if (!logged) return false;
+
+  // Mock QC is deliberately in-memory/deterministic and historically does
+  // not write a report file. Real modes must have the immutable report file.
+  if (expectedMode === 'mock') return true;
+  const reportPath = path.join(projectDir(task.id), 'quality', job.variantId, `attempt-${attempt}`, 'quality-report.json');
+  try {
+    const report = JSON.parse(await readFile(reportPath, 'utf8')) as Record<string, unknown>;
+    return report.variant_id === job.variantId &&
+      report.attempt === attempt &&
+      report.evaluation_mode === 'visual' &&
+      report.passed === true;
+  } catch {
+    return false;
+  }
+}
+
+/** Return true when a completed production task must be reopened for QC. */
+export async function needsQualityRecovery(task: Task, stateManager: WorkflowStateManager): Promise<boolean> {
+  if (task.appMode !== 'full' || task.status !== 'COMPLETED') return false;
+  const selected = task.selectedVariants?.length ? task.selectedVariants : ['V1'];
+  if (!task.generationTasks?.length) return false;
+  for (const variantId of selected) {
+    const job = task.generationTasks.filter(item => item.variantId === variantId).at(-1);
+    const result = task.results.find(item => item.id === variantId);
+    if (!job || job.status !== 'COMPLETED' || result?.status !== 'completed') return true;
+    const outputPath = path.join(projectDir(task.id), 'results', `${variantId}.mp4`);
+    try {
+      if (!(await stat(outputPath)).isFile()) return true;
+    } catch {
+      return true;
+    }
+    if (!(await hasCurrentQualityReport(task, stateManager, job))) return true;
+  }
+  return false;
 }
 
 export class WorkflowScheduler {
@@ -133,7 +190,16 @@ export class WorkflowScheduler {
       if(job.provider!==provider.name || (!options.providerOverride && job.model!==route.model))throw new Error('Saved provider/model differs; refusing to reroute');
       const result = task.results.find(r => r.id === job.variantId)!;
       if (job.status === 'COMPLETED' && result.status === 'completed') {
-        continue;
+        if (await hasCurrentQualityReport(task, stateManager, job)) continue;
+        // A crash can leave the video and task marked completed after the
+        // quality write was interrupted. Reopen only the review gate and let
+        // GeneratorAgent reuse the existing remote ID/video without charging
+        // another generation request.
+        if (stateManager.currentStatus === 'COMPLETED') {
+          stateManager.transition('REVIEWING', 'quality', `${job.variantId}: 恢复未完成的质量审核`);
+          task.status = 'REVIEWING';
+          await persistTasks();
+        }
       }
 
       let retryCount = job.attempt ?? stateManager.currentLog.retry_history.filter(r=>r.variantId===job.variantId).length;

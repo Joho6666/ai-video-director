@@ -2,6 +2,8 @@ import { readTask, acquireTaskLock, saveTask } from '../shared/storage';
 import type { Task } from '../shared/types';
 import type { ProviderTask, ProviderInput, VideoGenerationProvider } from '../video-provider/legacy';
 import { VideoProductionWorkflow } from '../orchestrator/workflow';
+import { WorkflowStateManager } from '../orchestrator/state';
+import { needsQualityRecovery } from '../orchestrator/scheduler';
 
 const state = globalThis as typeof globalThis & { directorActive?: Set<string> };
 export const active = state.directorActive ??= new Set();
@@ -25,7 +27,10 @@ export async function runTask(task: Task): Promise<void> {
   try {
     task = await readTask(task.id);
     delete task.error;
-    if (task.status === 'COMPLETED') return;
+    if (task.status === 'COMPLETED') {
+      const runState = await WorkflowStateManager.load(task.id, task.appMode);
+      if (!(await needsQualityRecovery(task, runState))) return;
+    }
     if (task.provider === 'seedance' && !task.plan) {
       throw new Error('Legacy Seedance task: production resume is not supported');
     }

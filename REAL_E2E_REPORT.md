@@ -52,3 +52,11 @@ The Director call produced and persisted `director-output.json`, `reference-evid
 This is a failed technical live run, not a `v1.1 COMPLETE` result. Because the provider query failed after a remote task ID was recorded, the safe next step is manual provider verification or a later status recovery using the same ID; automatic resubmission is forbidden. A customer-level product fidelity or authorization claim cannot be made from these assets.
 
 The report contains hashes and sanitized summaries only. It contains no credentials, Authorization headers, absolute source paths, raw provider responses, signed URLs or customer media.
+
+## 7. Post-review recovery hardening
+
+The completed-video recovery path now requires a passing visual report for the
+same immutable attempt before it can return early. If that report is missing,
+the workflow reopens review and reuses the saved video/remote ID without a new
+paid submission. This change is covered by the deterministic test suite; the
+historical live run above remains unchanged and still has no downloadable MP4.

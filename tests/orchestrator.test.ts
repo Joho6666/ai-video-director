@@ -21,6 +21,7 @@ test('Workflow state machine validates legal and illegal transitions', () => {
   assert.equal(isValidTransition('REVIEWING', 'RETRYING'), true);
   assert.equal(isValidTransition('REVIEWING', 'COMPLETED'), true);
   assert.equal(isValidTransition('RETRYING', 'GENERATING'), true);
+  assert.equal(isValidTransition('COMPLETED', 'REVIEWING'), true);
   assert.equal(isValidTransition('GENERATING', 'FAILED'), true);
   assert.equal(isValidTransition('ANALYZING', 'FAILED'), true);
 
