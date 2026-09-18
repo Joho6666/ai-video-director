@@ -31,7 +31,7 @@ The deterministic workflow and recovery hardening are ready for review, but a re
 
 | Check | Result |
 |---|---|
-| `npm test` | **PASS** — 78 tests |
+| `npm test` | **PASS** — 79 tests |
 | `npm run typecheck` | **PASS** |
 | `npm run lint` | **PASS** |
 | `npm run build` | **PASS** |
@@ -64,6 +64,9 @@ The fresh-build rehearsal reached the Director/Pi stage but the model request pr
 - Direct task-detail requests start pending-task recovery after a process restart.
 - Persisted generation tasks resume through the guarded Scheduler without another Director/Pi planning call; existing remote IDs are polled only.
 - Customer UI/API errors map provider and transport details to actionable Chinese messages while retaining only sanitized task logs.
+- Ambiguous paid submissions disable the new-task action in the UI; manual verification is required and no second submission is allowed.
+- Recovery uses the persisted Provider/model for existing attempts, even when current auto-routing preferences change.
+- Replay requires a passing visual QC artifact, and explicit replay requests cannot fall back to another task.
 - Preflight, Golden Case, live rehearsal and verified replay entry points are available.
 
 ## Safe demo instructions

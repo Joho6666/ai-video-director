@@ -4,7 +4,7 @@ import { randomUUID } from 'node:crypto';
 import type { Task } from '../shared/types';
 import { projectDir, jsonWrite, saveTask } from '../shared/storage';
 import { createExportPackage } from '../shared/exports';
-import { routeProvider, resolveVideoRoute } from '../video-provider/router';
+import { providerForSavedRoute, routeProvider, resolveVideoRoute } from '../video-provider/router';
 import type { VideoGenerationProvider, VideoGenerationRequest } from '../video-provider/types';
 import { selectionSchema, productionPrompt, prepareFirstFrame, loadGenerationTasks } from '../agent/production';
 import {
@@ -123,22 +123,45 @@ export class WorkflowScheduler {
     }
 
     // 2. Producer Agent Phase
-    const resolvedRoute = options.providerOverride
+    const selected = selectionSchema.parse(task.selectedVariants || ['V1']);
+    task.selectedVariants = selected;
+    task.generationTasks = await loadGenerationTasks(task);
+    const savedJob = task.generationTasks.find(job => selected.includes(job.variantId));
+    const savedRoute = savedJob ? {
+      provider: savedJob.provider,
+      model: savedJob.model,
+      duration: savedJob.request.duration,
+      resolution: savedJob.request.resolution,
+      aspect_ratio: savedJob.request.aspect_ratio,
+    } : null;
+    if (savedRoute && task.generationTasks.some(job => job.provider !== savedRoute.provider || job.model !== savedRoute.model)) {
+      throw new Error('Saved generation attempts use different providers or models; refusing recovery');
+    }
+    const resolvedRoute = options.providerOverride || savedRoute
       ? null
       : resolveVideoRoute(task.appMode, task.taskType, options.env);
-    if (!options.providerOverride && !resolvedRoute) throw new Error('Director-only mode cannot produce video');
-    const producerDecision = options.skipProducer
-      ? stateManager.currentLog.producer_decision || this.producer.run(ctx)
-      : this.producer.run(ctx);
+    if (!options.providerOverride && !savedRoute && !resolvedRoute) throw new Error('Director-only mode cannot produce video');
+    const producerDecision = savedRoute
+      ? stateManager.currentLog.producer_decision || {
+        provider: savedRoute.provider,
+        model: savedRoute.model,
+        duration: savedRoute.duration,
+        resolution: savedRoute.resolution,
+        aspect_ratio: savedRoute.aspect_ratio,
+        rationale: '复用已持久化的 Provider 路线继续任务',
+      }
+      : options.skipProducer
+        ? stateManager.currentLog.producer_decision || this.producer.run(ctx)
+        : this.producer.run(ctx);
     // The Router is the only source of live provider parameters. Producer
     // output remains useful for audit text, but a stale persisted decision
     // cannot change the provider, model, duration, resolution, or aspect ratio
     // used for a new task or for recovery of an existing task.
-    const route = options.providerOverride
+    const route = savedRoute || (options.providerOverride
       ? { provider: options.providerOverride.name, model: producerDecision.model, duration: producerDecision.duration, resolution: producerDecision.resolution, aspect_ratio: producerDecision.aspect_ratio }
-      : resolvedRoute!;
+      : resolvedRoute!);
     if (!route) throw new Error('Director-only mode cannot produce video');
-    if (!options.providerOverride && options.skipProducer && (
+    if (!options.providerOverride && !savedRoute && options.skipProducer && (
       producerDecision.provider !== route.provider ||
       producerDecision.model !== route.model ||
       producerDecision.duration !== route.duration ||
@@ -147,13 +170,11 @@ export class WorkflowScheduler {
     )) {
       throw new Error('Saved provider route differs from current configuration; refusing to reroute');
     }
-    const provider = options.providerOverride || routeProvider(task.appMode, task.taskType, options.env);
+    const provider = options.providerOverride || (savedRoute
+      ? providerForSavedRoute(savedRoute.provider, savedRoute.model, options.env)
+      : routeProvider(task.appMode, task.taskType, options.env));
     task.provider = route.provider;
 
-    const selected = selectionSchema.parse(task.selectedVariants || ['V1']);
-    task.selectedVariants = selected;
-
-    task.generationTasks = await loadGenerationTasks(task);
     if(task.generationTasks.length && stateManager.currentStatus==='FAILED')stateManager.resumeProduction();
 
     const firstFrame = task.appMode === 'full' && !task.generationTasks.length ? await prepareFirstFrame(task) : undefined;

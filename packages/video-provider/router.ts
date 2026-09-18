@@ -36,3 +36,13 @@ export function routeProvider(mode:string,type='ecommerce',env:Record<string,str
  if(route.provider==='wan')return new WanProvider({key:env.WAN_API_KEY||env.DASHSCOPE_API_KEY||'',base:env.WAN_BASE_URL||'https://dashscope.aliyuncs.com',model:route.model});
  return new MiniMaxProvider({key:env.MINIMAX_API_KEY||'',base:env.MINIMAX_BASE_URL||'https://api.minimax.cn',model:route.model});
 }
+
+/** Resume a persisted attempt without allowing current routing preferences to
+ * replace its original provider or model. The adapter still validates its own
+ * capability and configured official endpoint before any network call. */
+export function providerForSavedRoute(provider:string, model:string, env:Record<string,string|undefined>=process.env):VideoGenerationProvider {
+ if(provider==='mock') return new MockProvider();
+ if(provider==='wan') return new WanProvider({key:env.WAN_API_KEY||env.DASHSCOPE_API_KEY||'',base:env.WAN_BASE_URL||'https://dashscope.aliyuncs.com',model});
+ if(provider==='minimax') return new MiniMaxProvider({key:env.MINIMAX_API_KEY||'',base:env.MINIMAX_BASE_URL||'https://api.minimax.cn',model});
+ throw new Error('Saved provider cannot be resumed safely');
+}

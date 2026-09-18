@@ -28,9 +28,15 @@ export function customerErrorMessage(value: unknown): string {
 }
 
 export function customerizeTask<T extends { error?: string; logs?: Array<{ time: string; message: string }> }>(task: T): T {
-  return {
+  const output = {
     ...task,
     error: task.error ? customerErrorMessage(task.error) : task.error,
     logs: task.logs?.map(log => ({ ...log, message: customerErrorMessage(log.message) })),
+  } as T & {
+    results?: Array<{ error?: string; [key: string]: unknown }>;
+    generationTasks?: Array<{ error?: string; [key: string]: unknown }>;
   };
+  if (Array.isArray(output.results)) output.results = output.results.map(result => ({ ...result, error: result.error ? customerErrorMessage(result.error) : result.error }));
+  if (Array.isArray(output.generationTasks)) output.generationTasks = output.generationTasks.map(job => ({ ...job, error: job.error ? customerErrorMessage(job.error) : job.error }));
+  return output as T;
 }
