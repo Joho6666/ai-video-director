@@ -71,10 +71,24 @@ export async function validateVideo(file:string,duration:number){
 }
 export async function downloadVideo(url:string,target:string,duration:number,transport:typeof fetch=fetch){
  const parsed=new URL(url);if(parsed.protocol!=='https:'||parsed.username||parsed.password||parsed.hostname==='localhost'||/^(127\.|10\.|192\.168\.|169\.254\.|\[)/.test(parsed.hostname))throw new Error('Unsafe video download URL');
- const response=await transport(url,{signal:AbortSignal.timeout(120_000),redirect:'error'});if(!response.ok||!response.body)throw new Error(`Video download HTTP ${response.status}`);
- const max=150*1024*1024;if(Number(response.headers.get('content-length'))>max)throw new Error('Video download exceeds size limit');
- const parts:Uint8Array[]=[];let size=0;for await(const part of response.body as unknown as AsyncIterable<Uint8Array>){size+=part.length;if(size>max)throw new Error('Video download exceeds size limit');parts.push(part);}
- await mkdir(path.dirname(target),{recursive:true});const temp=target+'.partial';await writeFile(temp,Buffer.concat(parts));await validateVideo(temp,duration);await rename(temp,target);
+ const max=150*1024*1024;let lastError:unknown;
+ for(let attempt=0;attempt<3;attempt++){
+  const temp=target+'.partial';
+  try{
+   const response=await transport(url,{signal:AbortSignal.timeout(120_000),redirect:'error'});if(!response.ok||!response.body)throw new Error(`Video download HTTP ${response.status}`);
+   if(Number(response.headers.get('content-length'))>max)throw new Error('Video download exceeds size limit');
+   const parts:Uint8Array[]=[];let size=0;for await(const part of response.body as unknown as AsyncIterable<Uint8Array>){size+=part.length;if(size>max)throw new Error('Video download exceeds size limit');parts.push(part);}
+   await mkdir(path.dirname(target),{recursive:true});await writeFile(temp,Buffer.concat(parts));await validateVideo(temp,duration);await rename(temp,target);return;
+  }catch(error){
+   lastError=error;
+   try{await rename(temp,temp+'.failed')}catch{}
+   const message=error instanceof Error?error.message:String(error);
+   const retryable=/^Video download HTTP (408|425|429|5\d\d)$|fetch failed|timeout|timed out|ECONN|UND_ERR|socket|network/i.test(message);
+   if(!retryable||attempt===2)throw error;
+   await new Promise(resolve=>setTimeout(resolve,250*(2**attempt)));
+  }
+ }
+ throw lastError instanceof Error?lastError:new Error('Video download failed');
 }
 export async function executeGeneration(job:GenerationTask,provider:VideoGenerationProvider,persist:()=>Promise<void>,finish:(url:string)=>Promise<string>,options={pollMs:5000,timeoutMs:20*60_000}){
  if(job.status==='COMPLETED')return;
@@ -82,8 +96,18 @@ export async function executeGeneration(job:GenerationTask,provider:VideoGenerat
  if(job.provider!==provider.name)throw new Error('Saved provider differs; refusing to reroute');
  if(!job.task_id&&job.submission_started_at){job.status='MANUAL_VERIFICATION_REQUIRED';await persist();throw new Error('Submission outcome unknown; manual verification required; no resubmission');}
  if(!job.task_id){job.submission_started_at=new Date().toISOString();await persist();try{const remote=await provider.createTask(job.request);if(!remote.id)throw new Error('Missing remote task ID');job.task_id=remote.id;job.status='SUBMITTED';await persist();}catch(error){if(!job.task_id){job.status='MANUAL_VERIFICATION_REQUIRED';await persist();}throw error;}}
- const deadline=Date.now()+options.timeoutMs;
- for(;;){const status=await provider.getTaskStatus(job.task_id);if(status==='FAILED')throw new Error('Provider generation failed');if(status==='COMPLETED')break;if(!['SUBMITTED','PROCESSING','PENDING'].includes(status))throw new Error('Invalid provider state');job.status=status==='PROCESSING'?'PROCESSING':'SUBMITTED';await persist();if(Date.now()>=deadline)throw new Error('Polling timeout; remote ID saved; resume polling only');await new Promise(r=>setTimeout(r,options.pollMs));}
+ const deadline=Date.now()+options.timeoutMs;let transientErrors=0;
+ for(;;){
+  let status:GenerationTask['status'];
+  try{status=await provider.getTaskStatus(job.task_id);transientErrors=0;}
+  catch(error){
+   transientErrors++;
+   if(transientErrors>5)throw error;
+   await new Promise(r=>setTimeout(r,250*(2**(transientErrors-1))));
+   if(Date.now()>=deadline)throw new Error('Polling timeout; remote ID saved; resume polling only');
+   continue;
+  }
+  if(status==='FAILED')throw new Error('Provider generation failed');if(status==='COMPLETED')break;if(!['SUBMITTED','PROCESSING','PENDING'].includes(status))throw new Error('Invalid provider state');job.status=status==='PROCESSING'?'PROCESSING':'SUBMITTED';await persist();if(Date.now()>=deadline)throw new Error('Polling timeout; remote ID saved; resume polling only');await new Promise(r=>setTimeout(r,options.pollMs));}
  const result=await provider.getResult(job.task_id);job.result_url=await finish(result.url);job.status='COMPLETED';delete job.error;await persist();
 }
 export async function produce(task:Task,providerOverride?:VideoGenerationProvider){

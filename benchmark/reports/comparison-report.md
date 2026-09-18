@@ -1,4 +1,6 @@
-# AI Video Director v1.2 Benchmark 评测对比报告
+# AI Video Director v1.2 Benchmark 评测对比报告 [SIMULATED - NOT REAL VIDEO EVIDENCE]
+
+> 历史离线模拟报告，仅验证评分代码和报告渲染，不证明真实视频效果优势。请运行 `npm run benchmark:real` 获取真实成片双盲结果。
 
 ## 1. 综合评测概览 (Summary)
 

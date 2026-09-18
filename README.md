@@ -1,6 +1,8 @@
-# AI Video Director v1.2 · Motion Intelligence, Visual Quality & Benchmark System
+# AI Video Director v1.3 · Real Benchmark & Production Validation
 
-AI Video Director 从流程 Demo 升级为具备商业交付竞争力的 AI 视频生产 Agent，专注解决“AI 模特动作机械”、“复刻缺少真人感”与“商品展示生硬”三大客户痛点。
+AI Video Director 保留 Director-first 生产链路，并把离线 Synthetic Benchmark 与真实成片 Real Benchmark 严格分开。Synthetic 只验证评分和报告代码；Real 才能验证视频效果优势。
+
+运行 `npm run benchmark:synthetic` 可在无凭证环境验证离线框架；运行 `npm run benchmark:real` 需要 DeepSeek、Wan 或 MiniMax 凭证和授权素材。缺少条件时只会输出 `REAL_BENCHMARK = UNAVAILABLE`，不会伪造分数或静默降级。
 
 ---
 
@@ -92,8 +94,11 @@ npm run build
 # 运行视觉质量专项测试
 npm run quality-test
 
-# 运行 5 大品类 Benchmark 评测
-npm run benchmark
+# 运行 Synthetic Benchmark（离线；不是真实视频证据）
+npm run benchmark:synthetic
+
+# 运行 Real Benchmark（需要凭证和授权素材；缺少条件时 UNAVAILABLE）
+npm run benchmark:real
 ```
 
 ---

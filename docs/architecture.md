@@ -1,4 +1,4 @@
-# Architecture · v0.5
+# Architecture · v1.3
 
 唯一模式配置为 APP_MODE：
 
@@ -17,3 +17,5 @@ FFmpeg 按 ≤10s、≤20s、>20s 抽取 16/24/32 张均匀静态帧，生成联
 Director ZIP 保持七文件白名单；生产增加 director-plan.json、generation-request.json、provider-result.json。导出拒绝 symlink 和超限文件，不含素材、MP4、密钥、data URL、绝对路径、签名下载地址。视频单独下载。
 
 本地 runtime、任务锁、幂等记录及生产记录不进入 Git。异常退出遗留锁需要人工确认原进程已停止后处理。真实 MiniMax 质量只能通过具备凭证的显式 live 测试验收，模拟 HTTP 测试不能替代。
+
+Benchmark 分为两个严格隔离的入口：`benchmark:synthetic` 只运行确定性离线数据并在报告首行标记 `[SIMULATED - NOT REAL VIDEO EVIDENCE]`；`benchmark:real` 使用同一 Provider、模型、首帧、时长和分辨率生成 Baseline/Director 成对视频，再用不携带组名或 Prompt 的视觉盲审解盲。缺少 DeepSeek、Wan/MiniMax 凭证或授权素材时返回 `REAL_BENCHMARK = UNAVAILABLE`，不会改用模拟分数。

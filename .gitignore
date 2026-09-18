@@ -4,3 +4,10 @@ data/
 .env
 .env.local
 *.tsbuildinfo
+*.mp4
+*.mov
+*.webm
+benchmark/runs/*
+!benchmark/runs/
+!benchmark/runs/.gitkeep
+benchmark/failures/*.json

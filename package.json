@@ -1,6 +1,6 @@
 {
   "name": "ai-video-director",
-  "version": "1.2.0",
+  "version": "1.3.0",
   "private": true,
   "type": "module",
   "scripts": {
@@ -20,7 +20,11 @@
     "e2e-live": "tsx scripts/e2e-live.ts",
     "provider-live": "tsx scripts/provider-live.ts",
     "production-resume": "tsx scripts/production-resume.ts",
-    "benchmark": "tsx scripts/run-benchmark.ts"
+    "benchmark": "npm run benchmark:synthetic",
+    "benchmark:synthetic": "tsx scripts/run-benchmark-synthetic.ts",
+    "benchmark:real": "tsx scripts/run-benchmark-real.ts",
+    "benchmark:retry": "tsx scripts/run-benchmark-retry.ts",
+    "benchmark:motion-ablation": "tsx scripts/run-benchmark-ablation.ts"
   },
   "dependencies": {
     "@earendil-works/pi-agent-core": "0.85.1",

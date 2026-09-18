@@ -18,7 +18,7 @@ async function atomicWrite(file:string,data:string|Buffer){
 function promptText(task:Task,index:number){
  const variant=task.plan!.variants[index];
  const showcase=variant.product_showcase.map((item,i)=>`${i+1}. ${item.feature} | ${item.action} | ${item.camera_focus} | ${item.evidence}`).join('\n');
- return `AI Video Director v1.2\nMode: ${task.appMode}\nVariant: ${variant.id} · ${variant.name}\n\nCreative Direction\n${variant.creative_direction}\n\nSeedance Prompt\n${variant.seedance_prompt}\n\nNegative Prompt\n${variant.negative_prompt}\n\nProduct Showcase\n${showcase}\n`;
+ return `AI Video Director v1.3\nMode: ${task.appMode}\nVariant: ${variant.id} · ${variant.name}\n\nCreative Direction\n${variant.creative_direction}\n\nSeedance Prompt\n${variant.seedance_prompt}\n\nNegative Prompt\n${variant.negative_prompt}\n\nProduct Showcase\n${showcase}\n`;
 }
 
 export async function createExportPackage(task:Task,root:string,input:{reference_evidence:unknown}){
@@ -37,7 +37,7 @@ export async function createExportPackage(task:Task,root:string,input:{reference
   const data=await readFile(target);manifest.push({id:`${asset.kind}_${String(counters[asset.kind]).padStart(2,'0')}`,type:asset.kind,mime:asset.mime,bytes:data.length,sha256:createHash('sha256').update(data).digest('hex')});
  }
  await atomicWrite(path.join(dir,'assets-manifest.json'),JSON.stringify(manifest,null,2));
- await atomicWrite(path.join(dir,'README.txt'),`AI Video Director v1.2 Motion & Quality Agent\nTask: ${task.id}\nMode: ${task.appMode}\n\nThis package contains directing plans, prompts, motion DNA and sanitized production audit records. It excludes uploaded customer media, sampled frames, generated videos, API responses and credentials.\n`);
+ await atomicWrite(path.join(dir,'README.txt'),`AI Video Director v1.3 Real Validation\nTask: ${task.id}\nMode: ${task.appMode}\n\nThis package contains directing plans, prompts, motion DNA and sanitized production audit records. It excludes uploaded customer media, sampled frames, generated videos, API responses and credentials.\n`);
  const zip=new JSZip();let total=0;
  const production=task.appMode!=='director'&&Boolean(task.generationTasks);
  if(production){

@@ -7,6 +7,10 @@ import type {
 } from './types';
 
 export * from './types';
+export { runSyntheticBenchmark } from './synthetic';
+export { runRealBenchmark } from './real';
+export { runMotionAblationBenchmark } from './ablation';
+export { runRetryBenchmark } from './retry';
 
 /**
  * AI Video Director Weighted Score:
@@ -67,6 +71,19 @@ export function evaluateCase(caseItem: BenchmarkCase): BenchmarkComparisonResult
     case_id: caseItem.id,
     case_name: caseItem.name,
     category: caseItem.category,
+    baseline: {
+      score: baseline_scores.director_score,
+      dimensions: baseline_scores,
+      reference_similarity: 50,
+      issues: ['通用提示词缺乏时空动作约束', '商品展示缺乏明确物理接触'],
+    },
+    director: {
+      score: director_scores.director_score,
+      dimensions: director_scores,
+      reference_similarity: 88,
+      issues: [],
+    },
+    delta: Number((director_scores.director_score - baseline_scores.director_score).toFixed(1)),
     baseline_scores,
     director_scores,
     score_delta: Number((director_scores.director_score - baseline_scores.director_score).toFixed(1)),
@@ -74,6 +91,8 @@ export function evaluateCase(caseItem: BenchmarkCase): BenchmarkComparisonResult
     human_delta: director_scores.human_realism - baseline_scores.human_realism,
     product_delta: director_scores.product_consistency - baseline_scores.product_consistency,
     camera_delta: director_scores.commercial_quality - baseline_scores.commercial_quality,
+    reference_similarity_delta: 38,
+    winner: 'director' as const,
     highlights,
   };
 }
@@ -99,7 +118,9 @@ export function generateComparisonReport(results: BenchmarkComparisonResult[]): 
   const avgProductDelta = (results.reduce((s, r) => s + r.product_delta, 0) / count).toFixed(1);
   const avgCameraDelta = (results.reduce((s, r) => s + r.camera_delta, 0) / count).toFixed(1);
 
-  let md = `# AI Video Director v1.2 Benchmark 评测对比报告
+  let md = `# AI Video Director v1.2 Benchmark 评测对比报告 [SIMULATED - NOT REAL VIDEO EVIDENCE]
+
+> 历史兼容入口，仅用于离线评分代码验证；不要把本报告当作真实视频证据。真实实验请运行 \`npm run benchmark:real\`。
 
 ## 1. 综合评测概览 (Summary)
 

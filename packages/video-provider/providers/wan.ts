@@ -53,7 +53,7 @@ export class WanProvider implements VideoGenerationProvider {
   // the durable submission intent in place and must never be retried. Status
   // reads are different: retrying a GET is safe because it cannot create a
   // second paid task, and DashScope occasionally drops a long-poll request.
-  const attempts=isSubmit?1:3;
+  const attempts=isSubmit?1:5;
   for(let attempt=0;attempt<attempts;attempt++){
    try{
     const response=await this.transport(this.config.base.replace(/\/$/,'')+endpoint,{
@@ -70,9 +70,10 @@ export class WanProvider implements VideoGenerationProvider {
     }
     return data;
    }catch(error){
-    if(attempt+1<attempts){await new Promise(resolve=>setTimeout(resolve,500*(attempt+1)));continue;}
+    if(attempt+1<attempts){await new Promise(resolve=>setTimeout(resolve,1000*(attempt+1)));continue;}
     if(error instanceof Error && (error.message.startsWith('Wan HTTP ')||error.message.startsWith('Wan business error ')))throw error;
-    throw new Error(body?'Wan submission outcome unknown; manual verification required; no resubmission':'Wan query connection failed');
+    const detail=error instanceof Error?error.message:String(error);
+    throw new Error(body?'Wan submission outcome unknown; manual verification required; no resubmission':`Wan query connection failed: ${detail}`);
    }
   }
   throw new Error('Wan query connection failed');

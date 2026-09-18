@@ -1,29 +1,29 @@
 ﻿import path from 'node:path';
-import { runBenchmarkSuite } from '../packages/benchmark';
+import { runSyntheticBenchmark } from '../packages/benchmark/synthetic';
 
 async function main() {
-  console.log('🚀 正在启动 AI Video Director v1.2 Benchmark 评测基准套件...');
+  console.log('🚀 正在启动 AI Video Director v1.3 Synthetic Benchmark（仅离线模拟验证）...');
   const casesDir = path.join(process.cwd(), 'benchmark', 'cases');
   const reportPath = path.join(process.cwd(), 'benchmark', 'reports', 'comparison-report.md');
 
-  const { results } = await runBenchmarkSuite(casesDir, reportPath);
+  const { results } = await runSyntheticBenchmark(casesDir, reportPath);
 
   console.log('\n======================================================');
-  console.log('📊 AI Video Director v1.2 Benchmark 评测汇总');
+  console.log('📊 AI Video Director v1.3 Synthetic Benchmark 评测汇总');
   console.log('======================================================');
 
   for (const r of results) {
     console.log(
       `[${r.case_id}] ${r.case_name} (${r.category})\n` +
-      `  • Baseline Score:  ${r.baseline_scores.director_score} / 100\n` +
-      `  • Director Score:  ${r.director_scores.director_score} / 100\n` +
-      `  • 净提升增幅 (Δ):   +${r.score_delta} 分 (Motion +${r.motion_delta}, Human +${r.human_delta}, Product +${r.product_delta}, Camera +${r.camera_delta})\n`
+      `  • Baseline Score:  ${r.baseline.score} / 100\n` +
+      `  • Director Score:  ${r.director.score} / 100\n` +
+      `  • 净提升增幅 (Δ):   ${r.delta >= 0 ? '+' : ''}${r.delta} 分 (Motion ${r.motion_delta}, Human ${r.human_delta}, Product ${r.product_delta}, Camera ${r.camera_delta})\n`
     );
   }
 
-  const avgBaseline = (results.reduce((s, r) => s + r.baseline_scores.director_score, 0) / results.length).toFixed(1);
-  const avgDirector = (results.reduce((s, r) => s + r.director_scores.director_score, 0) / results.length).toFixed(1);
-  const avgDelta = (results.reduce((s, r) => s + r.score_delta, 0) / results.length).toFixed(1);
+  const avgBaseline = (results.reduce((s, r) => s + r.baseline.score, 0) / results.length).toFixed(1);
+  const avgDirector = (results.reduce((s, r) => s + r.director.score, 0) / results.length).toFixed(1);
+  const avgDelta = (results.reduce((s, r) => s + r.delta, 0) / results.length).toFixed(1);
 
   console.log('------------------------------------------------------');
   console.log(`平均 Baseline 得分: ${avgBaseline} / 100`);
