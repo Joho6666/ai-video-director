@@ -1,51 +1,124 @@
-# AI Video Director v1.1 · Pi Video Agent
+# AI Video Director v1.2 · Motion Intelligence, Visual Quality & Benchmark System
 
-上传参考视频、模特及商品图，经 DeepSeek Director 生成三份导演方案。生产模式增加成片首帧图，可勾选 V1/V2/V3 中的 1–3 条视频（默认 V1）。
+AI Video Director 从流程 Demo 升级为具备商业交付竞争力的 AI 视频生产 Agent，专注解决“AI 模特动作机械”、“复刻缺少真人感”与“商品展示生硬”三大客户痛点。
+
+---
+
+## 核心架构 (Architecture Diagram)
+
+```mermaid
+flowchart TD
+    A[用户输入: 参考视频 + 模特图 + 商品图] --> B[FFmpeg 动态有序抽帧 16-32 帧 + 联系表]
+    B --> C[DeepSeek V4.1 Flash 视觉分析大脑]
+    C --> D[Shot DNA & 帧级证据链 Reference Evidence]
+    C --> E[Motion DNA v2 时空运动学解构]
+    E --> F[V1 / V2 / V3 商业导购方案 3 套结构差异方案]
+    F --> G[Production Agent & 统一 Provider Router]
+    G --> H[Wan / MiniMax / Seedance / Mock 视频生成]
+    H --> I[生成视频下载与 FFprobe 校验 MP4]
+    I --> J[Quality Agent v2 双向视觉质检]
+    J --> K{质量与相似度门禁}
+    K -- 未达标且可修复 --> L[Retry Agent 靶向局部修补提示词]
+    L --> H
+    K -- 审核通过 / 质检归档 --> M[最终成片交付 + 生产包导出 + Benchmark 评测]
+```
+
+---
+
+## 核心能力升级
+
+### 1. Motion Intelligence (Motion DNA v2)
+- **拒绝模糊形容词**：全面禁止“自然走路”、“高级展示”、“优雅动作”等无指导力词汇。
+- **生理动力学解构**：强制规范视线先行（Gaze-leading）、颈部延迟偏转、肩躯反相摆动、步态重心转移（Weight-transfer）、非对称摆臂、手持物体持续物理接触与收尾布料沉降（Settling）。
+- **帧级证据链 (Motion Evidence)**：所有动作特征必须绑定抽样帧 ID 列表与置信度；无法观测项严格标为 `UNKNOWN`，杜绝模型幻觉。
+
+### 2. Visual Quality Intelligence (Quality Agent v2)
+- **四维 100 分制质检模型**：
+  - `motion_naturalness` (0–25 分)：步态连贯性、肢体惯性阻尼。
+  - `human_realism` (0–25 分)：视线自然度、微表情放松、头颈分步转动。
+  - `product_consistency` (0–25 分)：商品外廓与纹理保真、手指无穿模贴合。
+  - `commercial_quality` (0–25 分)：摄影机运镜平滑度、商业构图与光影质感。
+- **参考视频相似度评分 (Reference Similarity Score)**：
+  - 质检时同时输入参考视频关键抽帧与生成成片帧。
+  - 评估 `camera_similarity`、`motion_similarity`、`composition_similarity`、`product_presentation_similarity`，输出 0–100 综合相似度评分。
+- **靶向局部修补 (Targeted Retry Agent)**：
+  - 不重写全局 Prompt，针对机械手臂、生硬转身、商品形变等具体缺陷进行局部提示词约束注入。
+
+### 3. 统一 Benchmark 评测系统
+- **5 大商业品类用例库** (`benchmark/cases/`)：
+  1. 女装服饰 (`01_womenswear.json`)
+  2. 美妆护肤 (`02_beauty.json`)
+  3. 食品饮料 (`03_food.json`)
+  4. 消费数码 (`04_digital.json`)
+  5. 生活家居 (`05_lifestyle.json`)
+- **加权评分公式 (AI Video Director Score)**：
+  $$\text{Score} = \text{Motion}(30\%) + \text{Human}(25\%) + \text{Product}(25\%) + \text{Camera}(20\%)$$
+- **对比模式 (Baseline vs Director)**：
+  - 一键运行对比普通直接提示词生成与 Director 方案的指标差距，自动产出 `benchmark/reports/comparison-report.md`。
+
+---
 
 ## 运行模式
 
-- `APP_MODE=director`：DeepSeek 分析和导演方案，无视频 Provider。
-- `APP_MODE=mock`：离线流程演示，所有成片显著标注 DEMO ONLY。
-- `APP_MODE=full`：DeepSeek → Production Agent → Router → Wan / MiniMax → 本地 MP4。
-
-复制 `.env.example` 至 `.env.local`，填写需要的 Key。生产模式需要 DeepSeek 与视频 Provider Key（Wan 或 MiniMax）。通过 VIDEO_PROVIDER=wan|minimax 指定，或自动选用已配置的 Key。无 MiniMax 返回 Provider unavailable，不回退 Mock。旧 DIRECTOR_MODE、VIDEO_PROVIDER 不参与选择。Full 模式可直接上传参考视频和模特／商品图；未提供独立首帧时，服务端从参考视频提取首帧作为 image-to-video 输入。 当前参考视频只用于 Director 视觉分析，Wan 的真实提交仍是 image-to-video；对已有视频做 video-to-video 优化尚未接入。
-
-MiniMax 已核实组合：`MiniMax-Hailuo-2.3`、1080P、6 秒，使用 `https://api.minimax.cn`。8 秒 Director timeline 按比例重排到 6 秒，再生成通用生产 Prompt。UI 在提交前显示实际组合；未核实的模型不接受提交。独立首帧图建议已包含人物与商品，服务端会自动补边至 1080×1920；未提供时 Full 模式从参考视频提取首帧作为 image-to-video 输入，不会将独立模特图和商品图伪装成多参考能力。打开 `/?new=1` 可开始一个不恢复最近任务的新视频任务。
+- `APP_MODE=director`：仅调用 DeepSeek 分析视频并输出 3 套商业导演方案，无视频生成费用。
+- `APP_MODE=mock`：离线流程演示，成片显著标注 `DEMO ONLY`。
+- `APP_MODE=full`：完整生产流水线（DeepSeek Director → Production Agent → Provider 生成 → Quality Agent v2 视觉质检）。
 
 ```powershell
+# 安装依赖
 npm install
+
+# 启动本地服务 (默认端口 3080)
 npm run dev -- --port 3080
 ```
 
-## 验证
+---
+
+## 自动化测试与验证
 
 ```powershell
+# 运行全部单元与集成测试 (71+ 项测试)
 npm test
+
+# 运行 TypeScript 类型检查
 npm run typecheck
+
+# 运行代码规范检查
 npm run lint
+
+# 生产环境打包构建
 npm run build
-npm run smoke
-npm run provider-test
-npm run provider-live -- --plan <generation-plan.json> --first-frame <image.jpg>
+
+# 运行视觉质量专项测试
+npm run quality-test
+
+# 运行 5 大品类 Benchmark 评测
+npm run benchmark
 ```
 
-`provider-live` 仅显式生成 V1。缺 Key 输出 UNAVAILABLE 并退出 0；模拟接口测试不代表真实视频测试。build/smoke 前停止同目录开发服务器，避免共用 .next 缓存冲突。
+---
 
-## 状态与恢复
+## 商业使用流程 (Commercial Workflow)
 
-每个版本持久保存 `generation-tasks.json`，先写提交意图，再提交一次，拿到 task_id 后立即保存。已有 task_id 仅查询；无 task_id 但存在提交意图时要求人工核对，不自动再扣费。远程成功后还需下载并通过 FFprobe 检查才完成。部分失败保留成功版本。
+1. **上传素材**：
+   - 选取一段真人商业爆款视频作为镜头参考（1–120 秒，MP4/MOV）。
+   - 上传模特穿搭照（外观/多角度）与商品特写照（外观/细节）。
+2. **输入创作诉求**：
+   - 输入具体营销诉求（支持一键添加“自然导购感”、“突出产品细节”、“避免机械复刻”）。
+3. **生成设置与勾选**：
+   - 支持多选 V1（轻奢时尚）、V2（都市通勤）、V3（活力街拍）。
+   - 可选上传成片首帧图；未上传时系统自动截取参考视频首帧并补边为 9:16。
+4. **AI 导演执行**：
+   - 自动化时空连续抽帧 → DeepSeek 视觉解构 Motion DNA v2 与 Shot DNA → 编译生成 3 套差异化可执行导演方案。
+5. **智能生产与双向审核**：
+   - 调度视频生成模型（Wan / MiniMax / Seedance）完成渲染并拉取本地 MP4。
+   - Quality Agent 双向比对参考视频与成片，审核通过出具推荐标记；未达标执行靶向修补重试。
+6. **交付与资产导出**：
+   - 页面直接预览与下载成片；一键导出创作包（含提示词、导演方案、Motion DNA、证据链与资产清单）。
 
-`npm run production-resume -- <task-id>` 复用既有 plan 和生产记录。运行锁存在时不启动第二个 runner；进程异常退出留下的锁需要人工确认原进程停止后清理，系统不自动抢锁。旧 Seedance 任务仅查看，不恢复付费任务。
+---
 
-## 导出
+## 安全与隐私规范
 
-Director 保留七文件白名单 ZIP。生产任务另含 director-plan.json、generation-request.json、provider-result.json（合计十文件）；不含素材、视频、Key、data URL、绝对路径或临时签名下载地址。MP4 在 results/ 单独提供下载。
-
-## Provider 边界
-
-Pi Runtime 0.85.1 作为编排层接入，保留确定性 WorkflowScheduler 作为安全执行层。真实视觉 QC 会对生成视频抽帧后调用 DeepSeek，并保存带帧证据的质量报告；不能把抽样静态图当作完整运动路径证明。Wan 优先用于本机 Live 入口，MiniMax 可配置，Seedance 与 Veo 保留适配器但本轮不做 Live 验收。
-
-官方契约来源（已读取）：
-- https://platform.minimax.cn/docs/api-reference/video-generation-i2v
-- https://platform.minimax.cn/docs/api-reference/video-generation-query
-- https://platform.minimax.cn/docs/api-reference/video-generation-download
+- 所有 `API Key`（DeepSeek, Wan/DashScope, MiniMax, Seedance）与本地私有配置均存放在 `.env.local`，已被 `.gitignore` 严格排除。
+- 用户原始视频、中间抽帧、生成视频及本地工程数据均存放在 `data/` 目录，禁止且不会提交至 GitHub。

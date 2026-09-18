@@ -1,0 +1,24 @@
+{
+  "id": "04_digital",
+  "category": "digital",
+  "name": "真无线降噪耳机佩戴与指尖触控",
+  "description": "数码潮流科技展示：模特自充电盒取出小巧耳机佩戴入耳，抬手单指精准轻敲耳机柄触控区，环境音骤减沉浸于音乐中。",
+  "requirement": "8秒无线降噪耳机广告。模特在都市地铁/街头背景下，食指捏取耳机佩戴至左耳，手指轻触耳机柄，镜头推至耳畔金属质感微距。",
+  "target_features": ["极简流线型工学外观", "侧柄金属触控切面", "瞬间降噪沉浸氛围"],
+  "baseline_prompt": "Person putting on wireless earbuds, technology commercial, modern cyberpunk street, listening to music, 4k cinematic render.",
+  "director_config": {
+    "reference_motion_focus": "手腕平滑上抬 -> 指尖捏合将耳机置入耳道微旋固定 -> 食指利落双击触控柄",
+    "showcases": [
+      {
+        "feature": "人体工学贴耳轮廓",
+        "action": "指腹轻轻贴合耳轮，展示耳机自然入耳隐藏线条",
+        "camera_focus": "耳侧微距特写聚焦耳机光泽切面"
+      },
+      {
+        "feature": "灵敏触控手势反馈",
+        "action": "食指轻快点击触控点，随后手臂自然放下垂落",
+        "camera_focus": "微距推进至触控指示灯微亮反馈"
+      }
+    ]
+  }
+}

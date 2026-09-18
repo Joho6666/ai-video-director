@@ -1,4 +1,4 @@
-import type { QualityReport } from '../quality';
+﻿import type { QualityReport } from '../quality';
 import type { VideoGenerationRequest } from '../../video-provider/types';
 
 export interface RetryEvaluationResult {
@@ -7,6 +7,7 @@ export interface RetryEvaluationResult {
   refined_prompt: string;
   strategy: string;
   reason?: string;
+  target_issues?: string[];
 }
 
 export const MAX_RETRIES_PER_VARIANT = 2;
@@ -41,27 +42,60 @@ export function evaluateRetrySkill(
 
   const nextAttempt = currentRetryCount + 1;
   const strategies: string[] = [];
+  const targetIssues: string[] = [];
   let additions = '';
 
   const issuesStr = report.issues.join('; ').toLowerCase();
 
-  if (issuesStr.includes('motion') || issuesStr.includes('动作') || issuesStr.includes('瞬移')) {
-    strategies.push('强化重心转移与自然肢体惯性阻尼');
-    additions += ' Dynamic tuning: Ensure weight shifts naturally to the rear foot before any turn; arms move with organic asymmetric inertia; smooth settling.';
+  // 1. Robotic arm / 机械手臂缺陷局部补丁
+  if (issuesStr.includes('robotic arm') || issuesStr.includes('机械手') || issuesStr.includes('僵硬手') || issuesStr.includes('arm')) {
+    strategies.push('针对机械手臂缺陷：注入自然非对称钟摆律动与指关节微屈微动约束');
+    targetIssues.push('robotic_arm');
+    additions += ' Anti-robotic arm patch: Arms swing with natural asymmetric pendulum motion; fingers remain relaxed with subtle knuckle flexion, avoiding synchronous or rigid limbs.';
   }
 
-  if (issuesStr.includes('product') || issuesStr.includes('商品') || issuesStr.includes('接触')) {
-    strategies.push('强化人手与商品持续物理接触与展示动作');
-    additions += ' Product showcase tuning: Hands maintain continuous, firm contact with the garment; deliberately display fabric texture and silhouette details.';
+  // 2. Unnatural turn / 转体僵硬缺陷局部补丁
+  if (issuesStr.includes('unnatural turn') || issuesStr.includes('转体') || issuesStr.includes('转身') || issuesStr.includes('turn') || issuesStr.includes('瞬移')) {
+    strategies.push('针对转体僵硬缺陷：注入视线先行、颈部引导转头、带动肩胸躯干的时间差层级约束');
+    targetIssues.push('unnatural_turn');
+    additions += ' Natural turn patch: The eye gaze shifts first, followed by head and neck rotation, which organically leads the shoulders and torso with realistic hierarchical delay; weight shifts decisively to the pivot foot before body turn.';
   }
 
+  // 3. Product disappearance/morph / 商品闪现/形变缺陷局部补丁
+  if (issuesStr.includes('product disappearance') || issuesStr.includes('morph') || issuesStr.includes('形变') || issuesStr.includes('闪现') || issuesStr.includes('丢失') || issuesStr.includes('穿模')) {
+    strategies.push('针对商品形变或闪现缺陷：注入全程物理接触与镜头焦点保护约束');
+    targetIssues.push('product_morph');
+    additions += ' Product consistency patch: Hands maintain uninterrupted physical contact with the garment/product; preserve exact silhouette, textures, seams, and proportions under stable camera tracking without flickering or morphing.';
+  }
+
+  // 4. General motion dynamics (compatibility & baseline tuning)
+  if (issuesStr.includes('motion') || issuesStr.includes('动作') || issuesStr.includes('步态') || issuesStr.includes('gait')) {
+    if (!additions.includes('weight shifts naturally')) {
+      strategies.push('强化重心转移与自然肢体惯性阻尼');
+      targetIssues.push('motion_inertia');
+      additions += ' Dynamic tuning: Ensure weight shifts naturally to the rear foot before any turn; arms move with organic asymmetric inertia; smooth settling.';
+    }
+  }
+
+  // 5. General product showcase tuning (compatibility)
+  if (issuesStr.includes('product') || issuesStr.includes('商品') || issuesStr.includes('接触') || issuesStr.includes('卖点')) {
+    if (!additions.includes('Product showcase tuning')) {
+      strategies.push('强化人手与商品持续物理接触与展示动作');
+      targetIssues.push('product_showcase');
+      additions += ' Product showcase tuning: Hands maintain continuous, firm contact with the garment; deliberately display fabric texture and silhouette details.';
+    }
+  }
+
+  // 6. Camera stabilization & tracking
   if (issuesStr.includes('camera') || issuesStr.includes('镜头') || issuesStr.includes('运镜')) {
     strategies.push('平滑摄影机运动轨迹');
+    targetIssues.push('camera_tracking');
     additions += ' Camera tuning: Move camera along a stabilized, gentle curve with steady focal tracking.';
   }
 
   if (strategies.length === 0) {
     strategies.push('优化动作节奏与微表情放松度');
+    targetIssues.push('general_relaxation');
     additions += ' Relaxed commercial performance: Gaze leads head movement smoothly, maintaining professional and warm presenter demeanor.';
   }
 
@@ -80,5 +114,6 @@ export function evaluateRetrySkill(
     attempt: nextAttempt,
     refined_prompt: refined,
     strategy: strategies.join('；'),
+    target_issues: targetIssues,
   };
 }

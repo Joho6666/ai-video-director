@@ -1,0 +1,24 @@
+{
+  "id": "03_food",
+  "category": "food",
+  "name": "冷萃黑咖啡开罐与生活化品尝",
+  "description": "便携食品饮料日常场景：模特在户外长椅坐姿端起冷萃易拉罐，轻拉拉环听到清脆开罐气泡声，浅饮一口后展露舒爽神情。",
+  "requirement": "制作8秒精品冷萃咖啡广告。模特非对称姿态坐在木质长椅上，单手持罐拉开拉环，送至唇边轻啜一口，喉结微动面部浮现治愈微笑。",
+  "target_features": ["易拉罐雾面磨砂质感", "开罐气泡喷雾细节", "日常松弛提神心智"],
+  "baseline_prompt": "A person drinking cold brew coffee can outdoor cafe, sunny day, drinking happily, commercial beverage video, high resolution.",
+  "director_config": {
+    "reference_motion_focus": "单手稳定端罐起幅 -> 拇指食指精准扣住拉环平稳上启 -> 头部轻微后仰品尝与喉部微动作",
+    "showcases": [
+      {
+        "feature": "雾面金属易拉罐包装",
+        "action": "手掌微张持握罐体中间，罐身冷凝水滴滑落",
+        "camera_focus": "中近景展现罐身Logo与水雾质感"
+      },
+      {
+        "feature": "醇香提神口感体验",
+        "action": "浅尝后唇边离罐，嘴角上扬呼吸放松展示惬意表情",
+        "camera_focus": "面部特写到商品半身关系切换"
+      }
+    ]
+  }
+}

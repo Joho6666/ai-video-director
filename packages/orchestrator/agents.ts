@@ -1,4 +1,4 @@
-import nodePath from 'node:path';
+﻿import nodePath from 'node:path';
 import {copyFile,mkdir} from 'node:fs/promises';
 import type { Task } from '../shared/types';
 import { projectDir, jsonWrite, saveTask, mediaUrl } from '../shared/storage';
@@ -44,7 +44,7 @@ export class DirectorAgent {
 
     const config = resolveAppConfig(ctx.env);
     await jsonWrite(nodePath.join(root, 'runtime.json'), {
-      version: '1.1.0',
+      version: '1.2.0',
       app_mode: task.appMode,
       director: task.director,
       video_provider: task.provider,

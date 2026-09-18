@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { referenceEvidenceSchema,deepSeekEnvelopeSchema,validateEvidenceFrameIds,normalizeUnknownProductShowcase } from '../packages/agent/deepseek';
 import { mockSupplements,checkPlan } from '../packages/director';
 import { mockTreatment } from '../packages/director/mock';
+import { mockMotionDna } from '../packages/shared/motion-dna.schema';
 import { frameCountForDuration } from '../packages/video-analysis';
 
 test('reference evidence requires every movement and camera field',()=>{
@@ -23,10 +24,11 @@ test('evidence rejects missing frame ids',()=>{const item={status:'Unknown' as c
 
 test('dynamic frame count follows duration bands',()=>{assert.equal(frameCountForDuration(10),16);assert.equal(frameCountForDuration(10.1),24);assert.equal(frameCountForDuration(20),24);assert.equal(frameCountForDuration(20.1),32);assert.equal(frameCountForDuration(80),32);});
 
-test('DeepSeek envelope separates original treatment from supplements',()=>{
+test('DeepSeek envelope separates original treatment from supplements and motion_dna',()=>{
  const task={metadata:{duration:8,width:720,height:1280}} as never;
  const treatment=mockTreatment(task);const evidence=Object.fromEntries(['scene','shot_size','camera_height','camera_angle','camera_motion','subject_trajectory','action_sequence','gaze','head_movement','shoulder_movement','arm_motion','hand_action','body_weight','facial_expression','product_interaction','motion_continuity','lighting','rhythm','product_display_logic'].map(k=>[k,{status:'Unknown',description:'unknown',frame_ids:[]}])) ;
  assert.equal(deepSeekEnvelopeSchema.safeParse({treatment,supplements:mockSupplements(),reference_evidence:evidence}).success,true);
+ assert.equal(deepSeekEnvelopeSchema.safeParse({treatment,supplements:mockSupplements(),reference_evidence:evidence,motion_dna:mockMotionDna()}).success,true);
 });
 
 test('Unknown product evidence is made explicit without inventing a claim',()=>{

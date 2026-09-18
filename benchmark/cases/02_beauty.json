@@ -1,0 +1,24 @@
+{
+  "id": "02_beauty",
+  "category": "beauty",
+  "name": "玻尿酸保湿精华微距上手试用",
+  "description": "美妆护肤品特写评测：博主手持精华滴管，将透明精华液滴至手背轻抹开，展示产品晶莹质地与皮肤吸收光泽。",
+  "requirement": "制作8秒美妆护肤品带货视频。模特手持精华瓶置于胸前，指关节自然微屈持握，手指轻推滴管取液，眼神温和自信看镜头微笑。",
+  "target_features": ["精华液水润晶莹质地", "滴管刻度细节", "涂抹后皮肤光泽度"],
+  "baseline_prompt": "Young woman holding skincare serum bottle, smiling naturally, smooth skin, commercial cosmetics advertisement, soft studio lighting.",
+  "director_config": {
+    "reference_motion_focus": "手持精华瓶上移置于胸前黄金分割位 -> 食指微动轻压滴管 -> 视线由产品转向镜头微笑",
+    "showcases": [
+      {
+        "feature": "滴管取液设计",
+        "action": "指节自然微屈轻捏胶头取液并向镜头展示滴管通透度",
+        "camera_focus": "微距近景聚焦滴管与透明瓶身"
+      },
+      {
+        "feature": "水润晶莹质感",
+        "action": "手背轻抹开精华液呈现柔和水光反射",
+        "camera_focus": "极近特写展现肌肤水润质感"
+      }
+    ]
+  }
+}

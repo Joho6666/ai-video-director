@@ -1,5 +1,6 @@
 import type {GenerationTask} from '../video-provider/types';
 import { z } from 'zod';
+import { motionDnaSchema } from './motion-dna.schema';
 
 export const workflowStatuses = ['CREATED','ANALYZING','PLANNING','GENERATING','REVIEWING','RETRYING','COMPLETED','FAILED'] as const;
 export type WorkflowStatus = typeof workflowStatuses[number];
@@ -21,10 +22,12 @@ export const variantSchema = z.object({
 export const videoGenerationSchema=z.object({provider:z.literal('auto').default('auto'),model:z.string().default(''),mode:z.literal('reference-to-video').default('reference-to-video'),duration:z.literal(8).default(8),aspect_ratio:z.literal('9:16').default('9:16'),quality:z.literal('high').default('high')});
 export const planSchema = z.object({ video_generation:videoGenerationSchema.optional(), project_id:z.string(), mode:z.enum(['mock','live']), skill_sha256:z.string(),
   reference_analysis:z.unknown(), shot_dna:z.object({keep:z.array(z.string()),mutate:z.array(z.string())}).passthrough(),
+  motion_dna:motionDnaSchema.optional(),
   variants:z.array(variantSchema).length(3), limitations:z.array(z.string()),
 });
 export type Variant = z.infer<typeof variantSchema>;
 export type Plan = z.infer<typeof planSchema>;
+export { type MotionDna, motionDnaSchema } from './motion-dna.schema';
 export type Result = { id:string; name:string; status:'waiting'|'generating'|'completed'|'failed'; providerTaskId?:string; url?:string; error?:string; qualityScore?:number; qualityFeedback?:string[] };
 export type AppMode='mock'|'agent'|'director'|'full';
 export type Task = {

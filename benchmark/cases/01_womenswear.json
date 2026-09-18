@@ -1,0 +1,24 @@
+{
+  "id": "01_womenswear",
+  "category": "womenswear",
+  "name": "秋季羊毛风衣行走与回眸展示",
+  "description": "女装经典穿搭展示场景：模特缓步前行后转身停顿，展现风衣腰带束腰比例、面料自然垂感与下摆走动风动效果。",
+  "requirement": "参考参考视频镜头，制作8秒秋季羊毛风衣商用广告。模特动作自然松弛，重心转换平稳，转身时衣摆自然飘动，轻触腰带展示收腰设计。",
+  "target_features": ["收腰剪裁比例", "羊毛面料垂坠感", "风衣下摆动态飘逸感"],
+  "baseline_prompt": "A beautiful fashion model wearing autumn trench coat walking in the city street, turning around elegantly, highly detailed, photorealistic, 8k commercial video.",
+  "director_config": {
+    "reference_motion_focus": "缓步前行 -> 视线先行转颈 -> 后脚承托重心微转体 -> 停顿后衣摆自然沉降",
+    "showcases": [
+      {
+        "feature": "收腰腰带剪裁",
+        "action": "人物自然侧身并轻抚腰侧腰带调节扣",
+        "camera_focus": "中景聚焦腰部与全身比例"
+      },
+      {
+        "feature": "下摆动态飘逸感",
+        "action": "正常缓步迈出两步，让风衣下摆随步态自然摆动并产生次级惯性沉降",
+        "camera_focus": "中远景跟拍下摆动态"
+      }
+    ]
+  }
+}

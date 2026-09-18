@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { planSchema, type Task, type Plan } from '../shared/types';
+import { mockMotionDna, motionDnaSchema } from '../shared/motion-dna.schema';
 import { loadSkill } from './skill';
 import { mockTreatment } from './mock';
 export const structureKeys=['camera_height','camera_trajectory','subject_trajectory','performance','framing','entrance','ending','environment_interaction','product_interaction'] as const;
@@ -26,19 +27,21 @@ function actualFingerprint(variant:Plan['variants'][number]){
 }
 export function checkPlan(plan:Plan){
  if(new Set(plan.variants.map(v=>v.id)).size!==3)throw new Error('Director 必须输出 V1 / V2 / V3');
+ if(plan.motion_dna)motionDnaSchema.parse(plan.motion_dna);
  for(const v of plan.variants){for(let i=1;i<v.timeline.length;i++)if(v.timeline[i-1].end_state!==v.timeline[i].start_state)throw new Error(`${v.id} 动作时间线不连续`);if(Math.abs(v.timeline.reduce((a,s)=>a+s.duration,0)-8)>0.1)throw new Error('每个版本必须为 8 秒');if(v.seedance_prompt.length>1800)throw new Error(`${v.id} Seedance Prompt 超过 1800 字符`);}
  for(let i=0;i<3;i++)for(let j=i+1;j<3;j++){
   const changes=structureKeys.filter(k=>normalizeStructure(plan.variants[i].structure[k])!==normalizeStructure(plan.variants[j].structure[k]));if(changes.length<3)throw new Error('版本间不足三个结构差异');
   const a=actualFingerprint(plan.variants[i]),b=actualFingerprint(plan.variants[j]);const actualChanges=(Object.keys(a) as Array<keyof typeof a>).filter(k=>JSON.stringify(a[k])!==JSON.stringify(b[k]));if(actualChanges.length<3)throw new Error('版本间实际内容不足三个差异维度');
  }
 }
-export async function compileTreatment(task:Task,raw:unknown,supplements:unknown,mode:'mock'|'live'){
+export async function compileTreatment(task:Task,raw:unknown,supplements:unknown,mode:'mock'|'live',motionDna?:unknown){
  const skill=await loadSkill();if(!skill.validate(raw))throw new Error('Director 输出不符合现有 Skill Schema: '+JSON.stringify(skill.validate.errors?.slice(0,3)));
  const treatment=raw as ReturnType<typeof mockTreatment>;
  if(treatment.mode!=='INSPIRE'||treatment.variations.length!==3)throw new Error('Director 必须输出 INSPIRE 模式的三个版本');
  if(mode==='live'&&Object.values(treatment.quality_check).some(v=>v!=='pass'))throw new Error('Director 质量检查未通过');
  const extra=supplementsSchema.parse(supplements);
- const plan=planSchema.parse({video_generation:{provider:"auto",model:"",mode:"reference-to-video",duration:8,aspect_ratio:"9:16",quality:"high"},project_id:task.project_id,mode,skill_sha256:skill.sha256,reference_analysis:treatment.reference_analysis,shot_dna:treatment.shot_dna,limitations:treatment.limitations,variants:treatment.variations.map(v=>{
+ const resolvedMotionDna = motionDna ? motionDnaSchema.parse(motionDna) : ((treatment as Record<string,unknown>)?.motion_dna ? motionDnaSchema.parse((treatment as Record<string,unknown>).motion_dna) : mockMotionDna());
+ const plan=planSchema.parse({video_generation:{provider:"auto",model:"",mode:"reference-to-video",duration:8,aspect_ratio:"9:16",quality:"high"},project_id:task.project_id,mode,skill_sha256:skill.sha256,reference_analysis:treatment.reference_analysis,shot_dna:treatment.shot_dna,motion_dna:resolvedMotionDna,limitations:treatment.limitations,variants:treatment.variations.map(v=>{
   if(v.timeline.continuity_check!=='pass')throw new Error('连续性检查未通过');
   const supplement=extra.find(x=>x.id===v.id);if(!supplement)throw new Error('缺少版本结构');
   if(mode==='live'&&(v.similarity_report.decision!=='pass'||Object.values(v.similarity_report).filter(x=>x==='high').length>=4))throw new Error('参考相似度检查未通过');

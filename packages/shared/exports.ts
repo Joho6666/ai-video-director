@@ -3,8 +3,9 @@ import { mkdir,lstat,readFile,rename,writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import JSZip from 'jszip';
 import type { Task } from './types';
+import { mockMotionDna } from './motion-dna.schema';
 
-export const EXPORT_FILES=['V1-prompt.txt','V2-prompt.txt','V3-prompt.txt','generation-plan.json','reference-evidence.json','assets-manifest.json','README.txt'] as const;
+export const EXPORT_FILES=['V1-prompt.txt','V2-prompt.txt','V3-prompt.txt','generation-plan.json','reference-evidence.json','motion-dna.json','assets-manifest.json','README.txt'] as const;
 export const PRODUCTION_EXPORT_FILES=['director-plan.json','generation-request.json','provider-result.json'] as const;
 const MAX_EXPORT_BYTES=8*1024*1024;
 
@@ -17,7 +18,7 @@ async function atomicWrite(file:string,data:string|Buffer){
 function promptText(task:Task,index:number){
  const variant=task.plan!.variants[index];
  const showcase=variant.product_showcase.map((item,i)=>`${i+1}. ${item.feature} | ${item.action} | ${item.camera_focus} | ${item.evidence}`).join('\n');
- return `AI Video Director v1.1\nMode: ${task.appMode}\nVariant: ${variant.id} · ${variant.name}\n\nCreative Direction\n${variant.creative_direction}\n\nSeedance Prompt\n${variant.seedance_prompt}\n\nNegative Prompt\n${variant.negative_prompt}\n\nProduct Showcase\n${showcase}\n`;
+ return `AI Video Director v1.2\nMode: ${task.appMode}\nVariant: ${variant.id} · ${variant.name}\n\nCreative Direction\n${variant.creative_direction}\n\nSeedance Prompt\n${variant.seedance_prompt}\n\nNegative Prompt\n${variant.negative_prompt}\n\nProduct Showcase\n${showcase}\n`;
 }
 
 export async function createExportPackage(task:Task,root:string,input:{reference_evidence:unknown}){
@@ -27,6 +28,7 @@ export async function createExportPackage(task:Task,root:string,input:{reference
  for(let i=0;i<3;i++)await atomicWrite(path.join(dir,`V${i+1}-prompt.txt`),promptText(task,i));
  await atomicWrite(path.join(dir,'generation-plan.json'),JSON.stringify(task.plan,null,2));
  await atomicWrite(path.join(dir,'reference-evidence.json'),JSON.stringify(input.reference_evidence,null,2));
+ await atomicWrite(path.join(dir,'motion-dna.json'),JSON.stringify(task.plan.motion_dna || mockMotionDna(),null,2));
  const counters={reference:0,model:0,product:0,first_frame:0};
  const manifest=[];
  for(const asset of task.assets){
@@ -35,7 +37,7 @@ export async function createExportPackage(task:Task,root:string,input:{reference
   const data=await readFile(target);manifest.push({id:`${asset.kind}_${String(counters[asset.kind]).padStart(2,'0')}`,type:asset.kind,mime:asset.mime,bytes:data.length,sha256:createHash('sha256').update(data).digest('hex')});
  }
  await atomicWrite(path.join(dir,'assets-manifest.json'),JSON.stringify(manifest,null,2));
- await atomicWrite(path.join(dir,'README.txt'),`AI Video Director v1.1 Pi Video Agent\nTask: ${task.id}\nMode: ${task.appMode}\n\nThis package contains directing plans, prompts and sanitized production audit records. It excludes uploaded customer media, sampled frames, generated videos, API responses and credentials.\n`);
+ await atomicWrite(path.join(dir,'README.txt'),`AI Video Director v1.2 Motion & Quality Agent\nTask: ${task.id}\nMode: ${task.appMode}\n\nThis package contains directing plans, prompts, motion DNA and sanitized production audit records. It excludes uploaded customer media, sampled frames, generated videos, API responses and credentials.\n`);
  const zip=new JSZip();let total=0;
  const production=task.appMode!=='director'&&Boolean(task.generationTasks);
  if(production){

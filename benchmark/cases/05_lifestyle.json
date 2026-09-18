@@ -1,0 +1,24 @@
+{
+  "id": "05_lifestyle",
+  "category": "lifestyle",
+  "name": "极简极光保温杯桌面拿取与旋盖",
+  "description": "家居生活好物推荐：桌面阳光斜照，模特右手握住保温杯中段平稳提起脱离桌面，左手旋开杯盖，散发细腻温热水汽。",
+  "requirement": "8秒极简家居保温杯展示。模特在晨光书桌前，从容握杯提起，杯底平稳脱离木桌无位移抖动，单手托底一手轻旋杯盖，动作自然沉稳。",
+  "target_features": ["极简哑光漆面工艺", "杯盖密封螺纹顺滑度", "保温水汽升腾治愈感"],
+  "baseline_prompt": "Woman holding modern stainless steel thermal tumbler at wooden desk, cozy morning light, minimalist home lifestyle commercial.",
+  "director_config": {
+    "reference_motion_focus": "手掌自桌边伸向杯身包裹拿取 -> 垂向平稳提拉离开桌面 -> 双手协同轻缓旋开杯盖",
+    "showcases": [
+      {
+        "feature": "哑光陶瓷内胆与杯口工艺",
+        "action": "旋开杯盖向镜头微倾，杯口圆润工艺与水汽清晰可见",
+        "camera_focus": "特写杯口与杯盖密封细节"
+      },
+      {
+        "feature": "极简握持比例与防滑底座",
+        "action": "手部贴合杯身平稳回放至桌面，杯底硅胶静音着陆",
+        "camera_focus": "平视推移镜头拍摄杯身与书桌空间关系"
+      }
+    ]
+  }
+}
