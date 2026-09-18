@@ -123,14 +123,30 @@ export class WorkflowScheduler {
     }
 
     // 2. Producer Agent Phase
-    const route = options.providerOverride
-      ? { provider: options.providerOverride.name, model: 'custom', duration: 8, resolution: '1080P', aspect_ratio: '9:16' as const }
+    const resolvedRoute = options.providerOverride
+      ? null
       : resolveVideoRoute(task.appMode, task.taskType, options.env);
-
-    if (!route) throw new Error('Director-only mode cannot produce video');
+    if (!options.providerOverride && !resolvedRoute) throw new Error('Director-only mode cannot produce video');
     const producerDecision = options.skipProducer
       ? stateManager.currentLog.producer_decision || this.producer.run(ctx)
       : this.producer.run(ctx);
+    // The Router is the only source of live provider parameters. Producer
+    // output remains useful for audit text, but a stale persisted decision
+    // cannot change the provider, model, duration, resolution, or aspect ratio
+    // used for a new task or for recovery of an existing task.
+    const route = options.providerOverride
+      ? { provider: options.providerOverride.name, model: producerDecision.model, duration: producerDecision.duration, resolution: producerDecision.resolution, aspect_ratio: producerDecision.aspect_ratio }
+      : resolvedRoute!;
+    if (!route) throw new Error('Director-only mode cannot produce video');
+    if (!options.providerOverride && options.skipProducer && (
+      producerDecision.provider !== route.provider ||
+      producerDecision.model !== route.model ||
+      producerDecision.duration !== route.duration ||
+      producerDecision.resolution !== route.resolution ||
+      producerDecision.aspect_ratio !== route.aspect_ratio
+    )) {
+      throw new Error('Saved provider route differs from current configuration; refusing to reroute');
+    }
     const provider = options.providerOverride || routeProvider(task.appMode, task.taskType, options.env);
     task.provider = route.provider;
 
@@ -150,13 +166,13 @@ export class WorkflowScheduler {
       const request: VideoGenerationRequest = {
         taskId: task.id,
         variantId: id,
-        model: producerDecision.model,
+        model: route.model,
         mode: 'image-to-video',
-        prompt: productionPrompt(variant, producerDecision.duration).prompt,
-        duration: producerDecision.duration,
-        aspect_ratio: '9:16',
+        prompt: productionPrompt(variant, route.duration).prompt,
+        duration: route.duration,
+        aspect_ratio: route.aspect_ratio,
         quality: 'high',
-        resolution: producerDecision.resolution,
+        resolution: route.resolution,
         firstFrame,
       };
 

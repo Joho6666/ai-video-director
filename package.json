@@ -24,7 +24,10 @@
     "benchmark:synthetic": "tsx scripts/run-benchmark-synthetic.ts",
     "benchmark:real": "tsx scripts/run-benchmark-real.ts",
     "benchmark:retry": "tsx scripts/run-benchmark-retry.ts",
-    "benchmark:motion-ablation": "tsx scripts/run-benchmark-ablation.ts"
+    "benchmark:motion-ablation": "tsx scripts/run-benchmark-ablation.ts",
+    "demo:preflight": "tsx scripts/demo-preflight.ts",
+    "demo:live": "tsx scripts/demo-live.ts",
+    "demo:replay": "tsx scripts/demo-replay.ts"
   },
   "dependencies": {
     "@earendil-works/pi-agent-core": "0.85.1",

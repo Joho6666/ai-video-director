@@ -44,7 +44,7 @@ export class DirectorAgent {
 
     const config = resolveAppConfig(ctx.env);
     await jsonWrite(nodePath.join(root, 'runtime.json'), {
-      version: '1.2.0',
+      version: '1.3.0',
       app_mode: task.appMode,
       director: task.director,
       video_provider: task.provider,

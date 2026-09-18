@@ -1,7 +1,7 @@
 import path from 'node:path';
 import { createHash, randomUUID } from 'node:crypto';
 import { copyFile, mkdir, readFile, writeFile, stat } from 'node:fs/promises';
-import { projectDir } from '../shared/storage';
+import { projectDir, jsonWrite } from '../shared/storage';
 import type { Asset, Task } from '../shared/types';
 import { ffmpeg, mediaExec, preprocess } from '../video-analysis';
 import { DeepSeekDirectorAdapter } from '../agent/deepseek';
@@ -110,8 +110,50 @@ function realReport(cases: CaseComparison[], provider: string, model: string, ru
 }
 
 type PreparedCase = { reference: string; model: string; product: string };
+type RealRoute = Exclude<ReturnType<typeof resolveVideoRoute>, null>;
 
-async function prepareTask(caseItem: BenchmarkCase, assets: PreparedCase): Promise<{ task: Task; planPrompt: string }> {
+export interface BenchmarkGenerationLedgerEntry {
+  job_id: string;
+  case_id: string;
+  arm: 'baseline' | 'director';
+  provider: string;
+  model: string;
+  status: GenerationTask['status'];
+  submission_started_at?: string;
+  remote_task_id?: string;
+  attempt: number;
+  updated_at: string;
+  result_file?: string;
+}
+
+export async function readGenerationLedger(runDir: string): Promise<BenchmarkGenerationLedgerEntry[]> {
+  const file = path.join(runDir, 'generation-ledger.json');
+  try {
+    const parsed = JSON.parse(await readFile(file, 'utf8')) as unknown;
+    if (!Array.isArray(parsed)) throw new Error('generation ledger must be an array');
+    for (const item of parsed) {
+      if (!item || typeof item !== 'object' || typeof (item as { job_id?: unknown }).job_id !== 'string' ||
+        typeof (item as { case_id?: unknown }).case_id !== 'string' ||
+        !['baseline', 'director'].includes(String((item as { arm?: unknown }).arm)) ||
+        typeof (item as { provider?: unknown }).provider !== 'string' ||
+        typeof (item as { model?: unknown }).model !== 'string' ||
+        typeof (item as { status?: unknown }).status !== 'string' ||
+        typeof (item as { attempt?: unknown }).attempt !== 'number') {
+        throw new Error('generation ledger entry is invalid');
+      }
+    }
+    return parsed as BenchmarkGenerationLedgerEntry[];
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return [];
+    throw new Error(`Generation ledger is invalid; refusing to reset or resubmit: ${error instanceof Error ? error.message : String(error)}`);
+  }
+}
+
+export async function writeGenerationLedger(runDir: string, ledger: BenchmarkGenerationLedgerEntry[]) {
+  await jsonWrite(path.join(runDir, 'generation-ledger.json'), ledger);
+}
+
+async function prepareTask(caseItem: BenchmarkCase, assets: PreparedCase, duration: number): Promise<{ task: Task; planPrompt: string }> {
   const id = randomUUID();
   const root = projectDir(id);
   await mkdir(path.join(root, 'assets'), { recursive: true });
@@ -144,33 +186,67 @@ async function prepareTask(caseItem: BenchmarkCase, assets: PreparedCase): Promi
   task.metadata = await preprocess(path.join(root, referenceAsset.file), path.join(root, 'reference'));
   const planned = await new DeepSeekDirectorAdapter().plan(task);
   task.plan = planned.plan;
-  const prompt = productionPrompt(task.plan.variants[0], 8).prompt;
+  const prompt = productionPrompt(task.plan.variants[0], duration).prompt;
   return { task, planPrompt: prompt };
 }
 
-async function generateArm(task: Task, provider: VideoGenerationProvider, prompt: string, arm: 'baseline' | 'director', duration: number, model: string) {
+async function generateArm(
+  task: Task,
+  provider: VideoGenerationProvider,
+  prompt: string,
+  arm: 'baseline' | 'director',
+  route: RealRoute,
+  caseId: string,
+  runDir: string,
+  ledger: BenchmarkGenerationLedgerEntry[],
+) {
   const root = projectDir(task.id);
   const firstFrame = { id: 'first_frame_01', file: 'production/first-frame.jpg', sha256: await fileHash(path.join(root, 'production', 'first-frame.jpg')) };
-  const id = randomUUID();
+  const existing = ledger.find(entry => entry.case_id === caseId && entry.arm === arm);
+  if (existing && existing.provider !== route.provider) throw new Error(`Generation ledger provider mismatch for ${caseId}/${arm}`);
+  if (existing && existing.model !== route.model) throw new Error(`Generation ledger model mismatch for ${caseId}/${arm}`);
+  if (existing && existing.submission_started_at && !existing.remote_task_id) {
+    throw new Error(`MANUAL_VERIFICATION_REQUIRED: ${caseId}/${arm} submission started without remote task ID; no resubmission`);
+  }
+  const id = existing?.job_id || randomUUID();
   const job: GenerationTask = {
-    id, variantId: 'V1', provider: provider.name, model, status: 'PENDING', created_at: new Date().toISOString(), updated_at: new Date().toISOString(),
-    request: { taskId: task.id, variantId: 'V1', model, mode: 'image-to-video', prompt, duration, aspect_ratio: '9:16', quality: 'high', resolution: '720P', firstFrame },
+    id, variantId: 'V1', provider: provider.name, model: route.model, status: existing?.remote_task_id ? (existing.status === 'COMPLETED' ? 'PROCESSING' : existing.status) : 'PENDING', created_at: new Date().toISOString(), updated_at: new Date().toISOString(),
+    request: { taskId: task.id, variantId: 'V1', model: route.model, mode: 'image-to-video', prompt, duration: route.duration, aspect_ratio: route.aspect_ratio, quality: 'high', resolution: route.resolution, firstFrame },
   };
+  if (existing?.remote_task_id) job.task_id = existing.remote_task_id;
+  if (existing?.submission_started_at) job.submission_started_at = existing.submission_started_at;
+  const entry: BenchmarkGenerationLedgerEntry = existing || {
+    job_id: id, case_id: caseId, arm, provider: route.provider, model: route.model,
+    status: 'PENDING', attempt: 0, updated_at: new Date().toISOString(),
+  };
+  if (!existing) ledger.push(entry);
+  const persist = async () => {
+    entry.status = job.status;
+    entry.submission_started_at = job.submission_started_at;
+    entry.remote_task_id = job.task_id;
+    entry.updated_at = new Date().toISOString();
+    await writeGenerationLedger(runDir, ledger);
+  };
+  // The intent is durable before any paid createTask call.
+  await persist();
   const target = path.join(root, 'results', `${arm}.mp4`);
-  await executeGeneration(job, provider, async () => undefined, async url => {
+  await executeGeneration(job, provider, persist, async url => {
     if (provider.name === 'mock') throw new Error('Real benchmark cannot use Mock Provider');
     const { downloadVideo } = await import('../agent/production');
-    await downloadVideo(url, target, duration);
+    await downloadVideo(url, target, route.duration);
     return target;
   }, { pollMs: 5000, timeoutMs: 20 * 60_000 });
+  entry.result_file = path.relative(runDir, target).replaceAll(path.sep, '/');
+  await persist();
   return { job, file: target };
 }
 
-export async function runRealBenchmark(options: { casesDir?: string; outputReportPath?: string; env?: Record<string, string | undefined> } = {}): Promise<BenchmarkSuiteResult> {
+export async function runRealBenchmark(options: { casesDir?: string; outputReportPath?: string; env?: Record<string, string | undefined>; runId?: string } = {}): Promise<BenchmarkSuiteResult> {
   const env = options.env ?? process.env;
-  const runId = `real-${new Date().toISOString().replace(/[:.]/g, '-')}-${randomUUID().slice(0, 8)}`;
+  const runId = options.runId || env.BENCHMARK_RUN_ID || `real-${new Date().toISOString().replace(/[:.]/g, '-')}-${randomUUID().slice(0, 8)}`;
   const runDir = path.join(process.cwd(), 'benchmark', 'runs', runId);
   await mkdir(runDir, { recursive: true });
+  const generationLedger = await readGenerationLedger(runDir);
   const unavailable = async (error: string): Promise<BenchmarkSuiteResult> => {
     const result: BenchmarkSuiteResult = { mode: 'real', run_id: runId, timestamp: new Date().toISOString(), provider: 'unavailable', model: 'unavailable', cases: [], average_baseline_score: 0, average_director_score: 0, average_delta: 0, outcome: 'NO VERIFIED ADVANTAGE', report_markdown: `# AI Video Director v1.3 Real Benchmark\n\nREAL_BENCHMARK = UNAVAILABLE\n\n${error}\n`, status: 'UNAVAILABLE', error };
     await writeFile(path.join(runDir, 'UNAVAILABLE.md'), result.report_markdown, 'utf8');
@@ -212,11 +288,11 @@ export async function runRealBenchmark(options: { casesDir?: string; outputRepor
         catch { throw new Error(`UNAVAILABLE: benchmark asset is missing or empty: ${path.basename(file)}`); }
       }
       const [refStat, modelStat, productStat] = await Promise.all([readFile(reference), readFile(model), readFile(product)]);
-      const { task, planPrompt } = await prepareTask(caseItem, prepared);
+      const { task, planPrompt } = await prepareTask(caseItem, prepared, route.duration);
       const baselinePrompt = caseItem.baseline_prompt;
       const assignment = blindAssignment(caseItem.id);
-      const baseline = await generateArm(task, provider, baselinePrompt, 'baseline', route.duration, route.model);
-      const director = await generateArm(task, provider, planPrompt, 'director', route.duration, route.model);
+      const baseline = await generateArm(task, provider, baselinePrompt, 'baseline', route, caseItem.id, runDir, generationLedger);
+      const director = await generateArm(task, provider, planPrompt, 'director', route, caseItem.id, runDir, generationLedger);
       const baselineLabel = assignment.video_A_arm === 'baseline' ? 'video_A' : 'video_B';
       const directorLabel = assignment.video_A_arm === 'director' ? 'video_A' : 'video_B';
       const baseQc = await evaluateBlindVideoFile(baseline.file, baselineLabel, path.join(runDir, caseItem.id, 'baseline-qc'), { commercialRequirement: caseItem.requirement, productImagePath: product, modelImagePath: model, referenceVideoPath: reference, env });

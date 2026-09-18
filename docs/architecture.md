@@ -19,3 +19,5 @@ Director ZIP 保持七文件白名单；生产增加 director-plan.json、genera
 本地 runtime、任务锁、幂等记录及生产记录不进入 Git。异常退出遗留锁需要人工确认原进程已停止后处理。真实 MiniMax 质量只能通过具备凭证的显式 live 测试验收，模拟 HTTP 测试不能替代。
 
 Benchmark 分为两个严格隔离的入口：`benchmark:synthetic` 只运行确定性离线数据并在报告首行标记 `[SIMULATED - NOT REAL VIDEO EVIDENCE]`；`benchmark:real` 使用同一 Provider、模型、首帧、时长和分辨率生成 Baseline/Director 成对视频，再用不携带组名或 Prompt 的视觉盲审解盲。缺少 DeepSeek、Wan/MiniMax 凭证或授权素材时返回 `REAL_BENCHMARK = UNAVAILABLE`，不会改用模拟分数。
+
+客户展示加固：`npm run demo:preflight` 在现场前检查 Node、FFmpeg/FFprobe、目录权限、磁盘、配置、Wan route、Golden Case 和端口；`npm run demo:live` 使用 Golden Case 仅生成 V1，所有付费提交遵守 `generation-ledger.json`。`npm run demo:replay -- <task-id>` 只读回放已验证的真实任务，明确显示 Verified Previous Run，不调用模型或 Provider。外部错误在 UI 转换为客户可理解的提示，原始细节只保留在本地任务记录。

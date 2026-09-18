@@ -83,7 +83,17 @@ export async function runPiAgent(options: PiRuntimeOptions): Promise<{ turns: nu
         blocked = true;
         throw new Error('Tool not allowed in the current workflow state');
       }
-      const result = await tool.execute(input, signal);
+      let result: unknown;
+      try {
+        result = await tool.execute(input, signal);
+      } catch (error) {
+        // A failed business tool is terminal for this model run. Returning the
+        // error to Pi and allowing it to guess a retry can repeat a paid or
+        // stateful action out of order. Recovery is handled by the durable
+        // workflow on the next run, never by an untrusted model retry.
+        blocked = true;
+        throw error;
+      }
       const checked = tool.output ? tool.output.parse(result) : result;
       return { content: [{ type: 'text', text: JSON.stringify(checked ?? null) }], details: {}, terminate: options.isComplete() };
     },

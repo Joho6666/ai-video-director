@@ -2,13 +2,15 @@ import { NextRequest,NextResponse,after } from 'next/server';
 import { mkdir,writeFile,readdir,stat } from 'node:fs/promises';
 import path from 'node:path';
 import { createHash,randomUUID } from 'node:crypto';
-import { active,runTask } from '@/packages/agent/runner';
+import { active,runTask,startPendingTaskRecovery } from '@/packages/agent/runner';
 import { dataRoot,jsonWrite,projectDir,readTask,reserveIdempotency,saveTask } from '@/packages/shared/storage';
 import {selectionSchema} from '@/packages/agent/production';
 import type { Task } from '@/packages/shared/types';
 import { resolveAppConfig } from '@/packages/shared/config';
+import { customerErrorMessage } from '@/packages/shared/errors';
 export const runtime='nodejs';
 export const dynamic='force-dynamic';
+startPendingTaskRecovery();
 
 /**
  * In local development Next may normalize the request URL to `localhost`
@@ -57,9 +59,9 @@ export async function POST(req:NextRequest){
   const task:Task={taskType:taskType as "fashion"|"ecommerce",selectedVariants,id,project_id:id,createdAt:new Date().toISOString(),updatedAt:new Date().toISOString(),requirement,assets:[],status:'UPLOADED',appMode:config.appMode,provider:config.videoProvider,director:config.director,idempotencyKey,logs:[{time:new Date().toISOString(),message:'素材已保存'}],results:config.appMode==='director'?[]:selectedVariants.map((resultId,i)=>({id:resultId,name:['轻奢时尚','都市通勤','活力街拍'][i],status:'waiting'}))};
   await mkdir(path.join(projectDir(id),'uploads'),{recursive:true});
   for(const {file,kind,data} of buffered){const ext=kind==='reference'?path.extname(file.name).toLowerCase():({'image/jpeg':'.jpg','image/png':'.png','image/webp':'.webp'}[file.type]||'.jpg');const relative=`uploads/${randomUUID()}${ext}`;await writeFile(path.join(projectDir(id),relative),data);task.assets.push({name:file.name,file:relative,mime:file.type,kind});}
-  await jsonWrite(path.join(projectDir(id),'runtime.json'),{version:'1.1.0',app_mode:task.appMode,director:task.director,video_provider:task.provider,deepseek_model:task.director==='deepseek'?config.deepseekModel:null,minimax_model:task.provider==='minimax'?(process.env.MINIMAX_MODEL||'MiniMax-Hailuo-2.3'):null,wan_model:task.provider==='wan'?(process.env.WAN_MODEL||'wanx2.1-i2v-plus'):null,frame_count:null});
+  await jsonWrite(path.join(projectDir(id),'runtime.json'),{version:'1.3.0',app_mode:task.appMode,director:task.director,video_provider:task.provider,deepseek_model:task.director==='deepseek'?config.deepseekModel:null,minimax_model:task.provider==='minimax'?(process.env.MINIMAX_MODEL||'MiniMax-Hailuo-2.3'):null,wan_model:task.provider==='wan'?(process.env.WAN_MODEL||'wanx2.1-i2v-plus'):null,frame_count:null});
   await saveTask(task);active.add(id);after(()=>runTask(task));return NextResponse.json(task,{status:201});
- }catch(e){return NextResponse.json({error:e instanceof Error?e.message:'上传失败'},{status:400});}
+ }catch(e){return NextResponse.json({error:customerErrorMessage(e)},{status:400});}
 }
 
 export async function GET(){

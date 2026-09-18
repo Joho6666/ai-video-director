@@ -1,7 +1,5 @@
 import type { Plan, AppMode } from '../../shared/types';
-import { MINIMAX_MODEL, MINIMAX_CAPABILITIES } from '../../video-provider/providers/minimax';
-import { WAN_MODEL, WAN_CAPABILITIES } from '../../video-provider/providers/wan';
-import { nearestDuration } from '../../video-provider/router';
+import { resolveVideoRoute } from '../../video-provider/router';
 
 export interface ProducerDecision {
   provider: 'mock' | 'minimax' | 'wan' | 'seedance' | 'veo' | 'none';
@@ -44,92 +42,27 @@ export function evaluateProducerSkill(
     throw new Error('Unsupported app mode: ' + appMode);
   }
 
-  // Check explicit provider override
-  const targetProvider = env.VIDEO_PROVIDER;
-  if (targetProvider === 'wan') {
-    const key = env.WAN_API_KEY || env.DASHSCOPE_API_KEY;
-    if (!key) throw new Error('Provider unavailable: WAN_API_KEY missing');
-    const model = env.WAN_MODEL || WAN_MODEL;
-    return {
-      provider: 'wan',
-      model,
-      duration: nearestDuration(8, WAN_CAPABILITIES.durations),
-      resolution: WAN_CAPABILITIES.resolution,
-      aspect_ratio: '9:16',
-      rationale: '按指令使用阿里 Wan2.1 极速版，高性价比生成 720P 竖屏视频',
-    };
+  // The Router is the single source of truth for provider, model, duration,
+  // resolution and aspect ratio. Producer only adds a human-readable reason.
+  let route: ReturnType<typeof resolveVideoRoute>;
+  try {
+    route = resolveVideoRoute('full', taskType, env);
+  } catch (error) {
+    // Legacy providers remain display-only compatibility paths. They are not
+    // selected by the current Router and never participate in live demo mode.
+    const target = env.VIDEO_PROVIDER;
+    if (target === 'seedance' && env.SEEDANCE_API_KEY && env.SEEDANCE_MODEL) return { provider: 'seedance', model: env.SEEDANCE_MODEL, duration: 8, resolution: '1080P', aspect_ratio: '9:16', rationale: 'Legacy Seedance configuration (not routed in v1.3 demo)' };
+    if (target === 'veo' && (env.VEO_API_KEY || env.GOOGLE_API_KEY)) return { provider: 'veo', model: env.VEO_MODEL || 'veo-2.0-generate-001', duration: 8, resolution: '1080P', aspect_ratio: '9:16', rationale: 'Legacy Veo configuration (not routed in v1.3 demo)' };
+    if (!target && env.SEEDANCE_API_KEY && env.SEEDANCE_MODEL && !env.WAN_API_KEY && !env.DASHSCOPE_API_KEY && !env.MINIMAX_API_KEY) return { provider: 'seedance', model: env.SEEDANCE_MODEL, duration: 8, resolution: '1080P', aspect_ratio: '9:16', rationale: 'Legacy Seedance configuration (not routed in v1.3 demo)' };
+    throw error;
   }
-
-  if (targetProvider === 'minimax') {
-    if (!env.MINIMAX_API_KEY) throw new Error('Provider unavailable: MINIMAX_API_KEY missing');
-    const model = env.MINIMAX_MODEL || MINIMAX_MODEL;
-    return {
-      provider: 'minimax',
-      model,
-      duration: nearestDuration(8, MINIMAX_CAPABILITIES.durations),
-      resolution: MINIMAX_CAPABILITIES.resolution,
-      aspect_ratio: '9:16',
-      rationale: '按指令使用 MiniMax-Hailuo-2.3 高清版，生成稳定织物与人物动态',
-    };
-  }
-
-  if (targetProvider === 'seedance') {
-    if (!env.SEEDANCE_API_KEY || !env.SEEDANCE_MODEL) throw new Error('Provider unavailable: SEEDANCE_API_KEY or SEEDANCE_MODEL missing');
-    return {
-      provider: 'seedance',
-      model: env.SEEDANCE_MODEL,
-      duration: 8,
-      resolution: '1080P',
-      aspect_ratio: '9:16',
-      rationale: '按指令使用火山方舟 Seedance 生成原生 8 秒高拟真动态',
-    };
-  }
-
-  if (targetProvider === 'veo') {
-    if (!env.VEO_API_KEY && !env.GOOGLE_API_KEY) throw new Error('Provider unavailable: VEO_API_KEY missing');
-    return {
-      provider: 'veo',
-      model: env.VEO_MODEL || 'veo-2.0-generate-001',
-      duration: 8,
-      resolution: '1080P',
-      aspect_ratio: '9:16',
-      rationale: '按指令使用 Google Veo 电影级模型生成顶级视觉画面',
-    };
-  }
-
-  // Automatic routing based on business criteria
-  if (env.MINIMAX_API_KEY && (taskType === 'fashion' || taskType === 'ecommerce')) {
-    return {
-      provider: 'minimax',
-      model: env.MINIMAX_MODEL || MINIMAX_MODEL,
-      duration: nearestDuration(8, MINIMAX_CAPABILITIES.durations),
-      resolution: MINIMAX_CAPABILITIES.resolution,
-      aspect_ratio: '9:16',
-      rationale: '电商与时尚穿搭场景自动选用 MiniMax，人物形变与衣物展示稳定性最优',
-    };
-  }
-
-  if (env.WAN_API_KEY || env.DASHSCOPE_API_KEY) {
-    return {
-      provider: 'wan',
-      model: env.WAN_MODEL || WAN_MODEL,
-      duration: nearestDuration(8, WAN_CAPABILITIES.durations),
-      resolution: WAN_CAPABILITIES.resolution,
-      aspect_ratio: '9:16',
-      rationale: '高性价比策略自动选用阿里 Wan2.1，高效输出 9:16 竖屏视频',
-    };
-  }
-
-  if (env.SEEDANCE_API_KEY && env.SEEDANCE_MODEL) {
-    return {
-      provider: 'seedance',
-      model: env.SEEDANCE_MODEL,
-      duration: 8,
-      resolution: '1080P',
-      aspect_ratio: '9:16',
-      rationale: '动作复刻场景自动选用火山 Seedance 原生 8 秒模型',
-    };
-  }
-
-  throw new Error('Provider unavailable: no valid video generation provider configured in environment');
+  if (!route) throw new Error('Provider unavailable: no production route');
+  return {
+    provider: route.provider,
+    model: route.model,
+    duration: route.duration,
+    resolution: route.resolution,
+    aspect_ratio: route.aspect_ratio,
+    rationale: `Router resolved ${route.provider} ${route.model} for ${taskType} (${route.duration}s ${route.resolution})`,
+  };
 }

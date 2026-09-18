@@ -11,3 +11,4 @@ benchmark/runs/*
 !benchmark/runs/
 !benchmark/runs/.gitkeep
 benchmark/failures/*.json
+demo/*.local.json

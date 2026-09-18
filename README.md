@@ -99,6 +99,15 @@ npm run benchmark:synthetic
 
 # 运行 Real Benchmark（需要凭证和授权素材；缺少条件时 UNAVAILABLE）
 npm run benchmark:real
+
+# 客户展示前预检（任何 P0 FAIL 都禁止现场生产）
+npm run demo:preflight
+
+# Golden Case 单 V1 真实彩排；无有效配置时明确 UNAVAILABLE
+npm run demo:live
+
+# 只读回放已验证的真实历史任务，不调用任何模型或视频 Provider
+npm run demo:replay -- <completed-real-task-id>
 ```
 
 ---
@@ -127,3 +136,10 @@ npm run benchmark:real
 
 - 所有 `API Key`（DeepSeek, Wan/DashScope, MiniMax, Seedance）与本地私有配置均存放在 `.env.local`，已被 `.gitignore` 严格排除。
 - 用户原始视频、中间抽帧、生成视频及本地工程数据均存放在 `data/` 目录，禁止且不会提交至 GitHub。
+
+## 客户展示边界
+
+- `demo:preflight` 只做本机和 DNS/HTTPS 安全检查，不创建付费视频任务。
+- `demo:live` 固定 Golden Case 的 V1、Wan 单 Provider 和最多一次质量重试；提交意图与远程 task ID 持久化后才允许恢复。
+- `demo:replay` 只显示 `Verified Previous Run / 已验证历史任务`。没有通过真实 MP4/QC 门禁的任务不会伪装成历史成片。
+- Synthetic Benchmark 的分数只验证代码和报告渲染；Real Benchmark 没有真实成片时显示 `NOT YET VERIFIED` / `UNAVAILABLE`。

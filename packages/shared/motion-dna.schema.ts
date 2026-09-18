@@ -104,6 +104,9 @@ export const emotionMotionSchema = z.object({
 }).strict();
 
 export const motionDnaSchema = z.object({
+  // DeepSeek is instructed to label the contract version. Keep this optional
+  // for older persisted plans while validating any supplied value strictly.
+  version: z.literal('v2').optional(),
   subject_motion: subjectMotionSchema,
   camera_motion: cameraMotionSchema,
   emotion: emotionMotionSchema,
