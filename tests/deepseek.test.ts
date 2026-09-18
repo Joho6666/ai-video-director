@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { referenceEvidenceSchema,deepSeekEnvelopeSchema,validateEvidenceFrameIds,normalizeUnknownProductShowcase } from '../packages/agent/deepseek';
+import { referenceEvidenceSchema,deepSeekEnvelopeSchema,validateEvidenceFrameIds,normalizeUnknownProductShowcase,normalizeProductEvidenceSources,normalizeUnknownMotionEvidence } from '../packages/agent/deepseek';
 import { mockSupplements,checkPlan } from '../packages/director';
 import { mockTreatment } from '../packages/director/mock';
 import { mockMotionDna } from '../packages/shared/motion-dna.schema';
@@ -36,6 +36,17 @@ test('Unknown product evidence is made explicit without inventing a claim',()=>{
  const normalized=normalizeUnknownProductShowcase(supplements);
  assert.match(normalized[1].product_showcase[0].feature,/^Unknown:/);
  assert.equal(normalized[0].product_showcase[0].feature, supplements[0].product_showcase[0].feature);
+});
+
+test('product evidence aliases are canonicalized to task product ids',()=>{
+ const supplements=mockSupplements().map(v=>({...v,product_showcase:v.product_showcase.map(x=>({...x,evidence:'product'}))}));
+ const normalized=normalizeProductEvidenceSources(supplements as Parameters<typeof normalizeProductEvidenceSources>[0],new Set(['product_01']));
+ assert.deepEqual(normalized[0].product_showcase[0].evidence,['product_01']);
+});
+
+test('explicit UNKNOWN motion evidence cannot retain frames or confidence',()=>{
+ const value=normalizeUnknownMotionEvidence({action:'UNKNOWN: hand contact not visible',evidence:{frames:['frame_03'],confidence:0.8}}) as {evidence:{frames:string[];confidence:number}};
+ assert.deepEqual(value.evidence,{frames:[],confidence:0});
 });
 
 test('plan rejects cosmetic structural differences',()=>{

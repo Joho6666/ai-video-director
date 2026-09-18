@@ -141,6 +141,30 @@ export interface QualityEvaluationOptions {
   env?: Record<string, string | undefined>;
 }
 
+/**
+ * DeepSeek occasionally returns an `inferred` status without repeating the
+ * inference qualifier in its prose. The status already carries that semantic;
+ * make it explicit before strict validation so a real, downloaded video is
+ * reviewed instead of being discarded over a formatting omission. This never
+ * upgrades evidence, alters frame IDs, or turns uncertainty into an observed
+ * claim.
+ */
+export function normalizeQualityEvidenceLanguage(raw: unknown): unknown {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return raw;
+  const output = { ...(raw as Record<string, unknown>) };
+  if (!Array.isArray(output.evidence)) return output;
+  output.evidence = output.evidence.map(item => {
+    if (!item || typeof item !== 'object' || Array.isArray(item)) return item;
+    const evidence = { ...(item as Record<string, unknown>) };
+    if (evidence.status === 'inferred' && typeof evidence.description === 'string' &&
+        !/inferred|likely|may|推断|推测|可能/i.test(evidence.description)) {
+      evidence.description = `Inferred: ${evidence.description}`;
+    }
+    return evidence;
+  });
+  return output;
+}
+
 export function qcFrameCount(duration: number) {
   return duration <= 10 ? 16 : 24;
 }
@@ -153,7 +177,7 @@ export function validateVisualQuality(
   attempt: number,
   mode: 'mock' | 'visual' | 'visual_blind' = 'visual'
 ): QualityReport {
-  const data = visualQualitySchema.parse(raw);
+  const data = visualQualitySchema.parse(normalizeQualityEvidenceLanguage(raw));
   for (const e of data.evidence) {
     if (e.frame_ids.some(id => !frameIds.has(id)) || e.reference_ids.some(id => !referenceIds.has(id))) {
       throw new Error('QC evidence references an unknown image ID');
@@ -165,7 +189,6 @@ export function validateVisualQuality(
   }
 
   const issues = data.evidence.filter(e => e.status !== 'uncertain' && e.severity !== 'none');
-  const hasUncertainty = data.evidence.some(e => e.status === 'uncertain');
   const indeterminateDimensions = canonicalDimensionNames.filter(d =>
     data.evidence.filter(e => normalizeDimensionName(e.dimension) === d).every(e => e.status === 'uncertain')
   );
@@ -194,6 +217,9 @@ export function validateVisualQuality(
     };
   }
 
+  const repairableEvidence = data.evidence.some(e =>
+    e.status === 'observed' && e.confidence !== 'low' && e.severity !== 'low' && e.severity !== 'none'
+  );
   return {
     variant_id: variantId,
     attempt,
@@ -210,7 +236,7 @@ export function validateVisualQuality(
     evaluated_at: new Date().toISOString(),
     evaluation_mode: mode,
     evidence: data.evidence,
-    retry_required: !passed && !hasUncertainty && issues.some(e => e.status === 'observed' && e.confidence !== 'low' && e.severity !== 'low'),
+    retry_required: !passed && repairableEvidence,
   };
 }
 

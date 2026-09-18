@@ -12,3 +12,5 @@ benchmark/runs/*
 !benchmark/runs/.gitkeep
 benchmark/failures/*.json
 demo/*.local.json
+demo/golden-assets/
+test-materials/

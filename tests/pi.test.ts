@@ -56,3 +56,48 @@ test('Pi applies Zod tool boundary and never executes invalid input', async () =
   }), /turn limit/);
   assert.equal(effects, 0);
 });
+
+/**
+ * Regression for the dead refine stage: the stage machine must allow a repair
+ * acknowledgement between review and finalize. Historically review_video set
+ * stage='finalize' unconditionally, so a model that (correctly) tried to
+ * refine was rejected and the run ended with 'invalid tool sequence'.
+ */
+test('Pi allows refine between review and finalize when QC is repairable', async () => {
+  const seen: string[] = [];
+  let stage: 'review' | 'refine' | 'finalize' = 'review';
+  const tools: RuntimeTool[] = ['review', 'refine', 'finalize'].map(name => ({
+    name, description: name, parameters: Type.Object({}), input: z.object({}).strict(),
+    execute: async () => {
+      seen.push(name);
+      if (name === 'review') stage = 'refine';
+      if (name === 'refine') stage = 'finalize';
+      return { ok: true };
+    },
+  }));
+  const result = await runPiAgent({ systemPrompt: 'Test', prompt: 'Test', tools,
+    canExecute: name => name === stage,
+    isComplete: () => seen.includes('finalize'),
+    transport: harness([['review'], ['refine'], ['finalize']]),
+  });
+  assert.equal(result.turns, 3);
+  assert.deepEqual(seen, ['review', 'refine', 'finalize']);
+});
+
+/** Regression for the unreachable finalize: reaching finalize must be enough
+ * to terminate cleanly once finalize_delivery has run, even when the task
+ * carries a non-terminal transient status such as REVIEWING. */
+test('Pi completes when finalize runs after a failed review', async () => {
+  const seen: string[] = [];
+  const tools: RuntimeTool[] = ['review', 'finalize'].map(name => ({
+    name, description: name, parameters: Type.Object({}), input: z.object({}).strict(),
+    execute: async () => { seen.push(name); return { ok: true }; },
+  }));
+  const result = await runPiAgent({ systemPrompt: 'Test', prompt: 'Test', tools,
+    canExecute: name => name === (seen.length === 0 ? 'review' : 'finalize'),
+    isComplete: () => seen.includes('finalize'),
+    transport: harness([['review'], ['finalize']]),
+  });
+  assert.deepEqual(seen, ['review', 'finalize']);
+  assert.equal(result.turns, 2);
+});

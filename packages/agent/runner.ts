@@ -5,7 +5,7 @@ import type { ProviderTask, ProviderInput, VideoGenerationProvider } from '../vi
 import { VideoProductionWorkflow } from '../orchestrator/workflow';
 import type { SchedulerOptions } from '../orchestrator/scheduler';
 import { WorkflowStateManager } from '../orchestrator/state';
-import { needsQualityRecovery } from '../orchestrator/scheduler';
+import { hasCurrentQualityReport, needsQualityRecovery } from '../orchestrator/scheduler';
 import { customerErrorMessage } from '../shared/errors';
 
 const state = globalThis as typeof globalThis & { directorActive?: Set<string> };
@@ -77,6 +77,18 @@ export async function recoverPendingTasks(): Promise<void> {
       if (task.status === 'COMPLETED' && (task.appMode !== 'full' || !task.generationTasks?.length)) return;
       if (task.status === 'FAILED' && !task.generationTasks?.length) return;
       if (task.generationTasks?.some(job => job.status === 'MANUAL_VERIFICATION_REQUIRED')) return;
+      // A real QC report is terminal evidence whether it passed or failed.
+      // Do not re-call DeepSeek on every browser refresh after a rejected
+      // video; the stored report and MP4 remain available for review.
+      if (task.generationTasks?.length) {
+        const stateManager = await WorkflowStateManager.load(task.id, task.appMode);
+        const selected = task.selectedVariants?.length ? task.selectedVariants : ['V1'];
+        const audited = await Promise.all(selected.map(variantId => {
+          const job = task.generationTasks!.filter(item => item.variantId === variantId).at(-1);
+          return job?.status === 'COMPLETED' ? hasCurrentQualityReport(task, stateManager, job) : false;
+        }));
+        if (audited.length > 0 && audited.every(Boolean) && ['FAILED', 'COMPLETED'].includes(task.status)) return;
+      }
       void runTask(task);
     } catch {
       // A corrupt task is intentionally left for explicit operator review.

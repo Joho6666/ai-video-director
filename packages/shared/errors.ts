@@ -17,6 +17,9 @@ export function customerErrorMessage(value: unknown): string {
   if (/manual.?verification|submission outcome unknown|no resubmission/i.test(raw)) {
     return '提交状态不确定，请人工确认，系统不会重复扣费';
   }
+  if (/visual quality did not pass|quality did not pass|quality.*not pass|审核未通过/i.test(raw)) {
+    return '质量审核未通过，已保留成片供查看';
+  }
   if (/quality|visual qc|审核/i.test(raw)) return '质量审核暂时不可用';
   if (/polling|queue|processing|remote task|云端|task.?id/i.test(raw)) {
     return '视频仍在云端生成，可稍后恢复';

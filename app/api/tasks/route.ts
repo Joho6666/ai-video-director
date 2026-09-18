@@ -51,7 +51,11 @@ export async function POST(req:NextRequest){
   const taskType=String(form.get('taskType')||'ecommerce');if(!['fashion','ecommerce'].includes(taskType))throw new Error('Unsupported task type');
   const images=[...models,...products,...(firstFrame instanceof File&&firstFrame.size?[firstFrame]:[])];
   for(const file of images)if(!(file instanceof File)||!['image/jpeg','image/png','image/webp'].includes(file.type)||file.size>10*1024*1024||file.size===0)throw new Error('图片需为 JPG / PNG / WebP，单张不超过 10 MB');
-  const config=resolveAppConfig();const id=randomUUID();const idempotencyKey=req.headers.get('idempotency-key')||randomUUID();
+  const config=resolveAppConfig();
+  if(config.appMode==='full'&&config.videoProvider==='wan'&&!(firstFrame instanceof File&&firstFrame.size)){
+   throw new Error('Wan 高保真生成必须上传一张已包含目标模特与商品的成片首帧图');
+  }
+  const id=randomUUID();const idempotencyKey=req.headers.get('idempotency-key')||randomUUID();
   const incoming=[{file:reference,kind:'reference' as const},...models.map(file=>({file:file as File,kind:'model' as const})),...products.map(file=>({file:file as File,kind:'product' as const})),...(firstFrame instanceof File&&firstFrame.size?[{file:firstFrame,kind:'first_frame' as const}]:[])];
   const buffered=await Promise.all(incoming.map(async item=>({...item,data:Buffer.from(await item.file.arrayBuffer())})));
   const fingerprint=createHash('sha256').update(requirement).update(config.appMode).update(JSON.stringify({selectedVariants,taskType,provider:'auto',model:config.videoProvider})).update(buffered.map(x=>createHash('sha256').update(x.data).digest('hex')).join(':')).digest('hex');

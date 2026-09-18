@@ -10,7 +10,7 @@ export interface RetryEvaluationResult {
   target_issues?: string[];
 }
 
-export const MAX_RETRIES_PER_VARIANT = 2;
+export const MAX_RETRIES_PER_VARIANT = 1;
 
 export function evaluateRetrySkill(
   report: QualityReport,
@@ -35,7 +35,7 @@ export function evaluateRetrySkill(
       can_retry: false,
       attempt: currentRetryCount,
       refined_prompt: request.prompt,
-      strategy: '已达到最大重试限制 (2 次)，停止重试并保留最后结果',
+      strategy: '已达到最大重试限制 (1 次)，停止重试并保留最后结果',
       reason: 'MAX_RETRIES_EXCEEDED',
     };
   }
@@ -62,10 +62,12 @@ export function evaluateRetrySkill(
   }
 
   // 3. Product disappearance/morph / 商品闪现/形变缺陷局部补丁
-  if (issuesStr.includes('product disappearance') || issuesStr.includes('morph') || issuesStr.includes('形变') || issuesStr.includes('闪现') || issuesStr.includes('丢失') || issuesStr.includes('穿模')) {
-    strategies.push('针对商品形变或闪现缺陷：注入全程物理接触与镜头焦点保护约束');
-    targetIssues.push('product_morph');
-    additions += ' Product consistency patch: Hands maintain uninterrupted physical contact with the garment/product; preserve exact silhouette, textures, seams, and proportions under stable camera tracking without flickering or morphing.';
+  if (issuesStr.includes('product disappearance') || issuesStr.includes('morph') || issuesStr.includes('形变') || issuesStr.includes('闪现') || issuesStr.includes('丢失') || issuesStr.includes('穿模') || issuesStr.includes('mismatch') || issuesStr.includes('not visible') || issuesStr.includes('不一致') || issuesStr.includes('不可见')) {
+    strategies.push('针对商品错配、形变或缺失：锁定首帧商品外观、持续接触与镜头焦点');
+    // Keep the historical product_morph label for persisted reports and UI
+    // consumers, while exposing the more precise v1.1 consistency category.
+    targetIssues.push('product_consistency', 'product_morph');
+    additions += ' Product consistency patch: Preserve exactly the product already visible in the supplied first frame: same color, silhouette, pattern, seams and proportions. Keep one hand in uninterrupted physical contact with it; frame it in a stable medium close shot without flickering or morphing, with no replacement or disappearance.';
   }
 
   // 4. General motion dynamics (compatibility & baseline tuning)

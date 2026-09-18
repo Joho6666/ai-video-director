@@ -12,6 +12,9 @@ export const selectionSchema=z.array(z.enum(['V1','V2','V3'])).min(1).max(3).ref
 const generationRequestSchema=z.object({
  taskId:z.string().min(1),variantId:z.enum(['V1','V2','V3']),model:z.string().min(1),mode:z.literal('image-to-video'),prompt:z.string().min(1),duration:z.number().positive(),aspect_ratio:z.literal('9:16'),quality:z.literal('high'),resolution:z.string().min(1),
  firstFrame:z.object({id:z.string().min(1),file:z.string().min(1),sha256:z.string().regex(/^[a-f0-9]{64}$/i)}).strict().optional(),
+ referenceImages:z.array(z.object({id:z.string().min(1),file:z.string().min(1),sha256:z.string().regex(/^[a-f0-9]{64}$/i).optional()})).optional(),
+ referenceVideo:z.object({id:z.string().min(1),file:z.string().min(1),sha256:z.string().regex(/^[a-f0-9]{64}$/i).optional()}).strict().optional(),
+ input_manifest:z.object({analysis_reference_ids:z.array(z.string()),qc_reference_ids:z.array(z.string()),provider_reference_ids:z.array(z.string())}).strict().optional(),
 }).strict();
 export const generationTaskSchema=z.object({
  id:z.string().min(1),variantId:z.enum(['V1','V2','V3']),provider:z.enum(['mock','minimax','seedance','wan','veo']),model:z.string().min(1),task_id:z.string().min(1).optional(),status:z.enum(['PENDING','SUBMITTED','PROCESSING','COMPLETED','FAILED','MANUAL_VERIFICATION_REQUIRED']),created_at:z.string().min(1),updated_at:z.string().min(1),submission_started_at:z.string().min(1).optional(),result_url:z.string().min(1).optional(),error:z.string().min(1).optional(),request:generationRequestSchema,attempt:z.number().int().min(0).max(2).optional(),previous_attempt_id:z.string().min(1).optional(),quality_passed:z.boolean().optional(),
@@ -46,10 +49,13 @@ export async function loadGenerationTasks(task:Task):Promise<GenerationTask[]>{
  }
 }
 export function productionPrompt(variant:Variant,duration:number){
- const total=variant.timeline.reduce((sum,b)=>sum+b.duration,0);if(!total)throw new Error('Empty timeline');let elapsed=0;
- const timeline=variant.timeline.map((beat,i)=>{const start=elapsed;elapsed=i===variant.timeline.length-1?duration:Number((elapsed+beat.duration/total*duration).toFixed(3));return {...beat,duration:elapsed-start,time_range:`${start}-${elapsed}s`};});
- const prompt=`${duration}-second vertical commercial. Preserve the person and product in the supplied first frame. `+timeline.map(b=>`${b.time_range}: ${b.transition}; camera: ${(b as Record<string,unknown>).camera_state||'steady'}; end: ${b.end_state}.`).join(' ');
- const details=` Performance: ${Object.values(variant.performance).join('; ')}.`;
+ const source=variant.timeline.length>2?[variant.timeline[0],variant.timeline[variant.timeline.length-1]]:variant.timeline;
+ const total=source.reduce((sum,b)=>sum+b.duration,0);if(!total)throw new Error('Empty timeline');let elapsed=0;
+ const timeline=source.map((beat,i)=>{const start=elapsed;elapsed=i===source.length-1?duration:Number((elapsed+beat.duration/total*duration).toFixed(3));return {...beat,duration:elapsed-start,time_range:`${start}-${elapsed}s`};});
+ const showcase=variant.product_showcase?.[0];
+ const productLock=showcase?` Product lock: preserve the visible product silhouette, color, pattern and proportions from the first frame; showcase ${showcase.feature} by ${showcase.action} with ${showcase.camera_focus}.`:' Product lock: preserve the exact visible product in the first frame and keep it continuously stable.';
+ const prompt=`${duration}-second vertical commercial. Visual lock: the supplied first frame is authoritative for the same person, wardrobe, product and composition; do not replace or recolor them.`+productLock+` One main movement and one product showcase only. `+timeline.map(b=>`${b.time_range}: ${b.transition}; camera: ${(b as Record<string,unknown>).camera_state||'steady'}; end: ${b.end_state}.`).join(' ');
+ const details=` Performance: ${['gaze','head_movement','shoulder_movement','body_weight','arms','hands'].map(key=>variant.performance[key]).filter(Boolean).join('; ')}.`;
  if(prompt.length>2000)throw new Error('Production core prompt exceeds provider limit');
  return {prompt:prompt.length+details.length<=2000?prompt+details:prompt,timeline};
 }
@@ -117,9 +123,14 @@ export async function produce(task:Task,providerOverride?:VideoGenerationProvide
  const selected=selectionSchema.parse(task.selectedVariants||['V1']);task.selectedVariants=selected;
  const root=projectDir(task.id);
  task.generationTasks=await loadGenerationTasks(task);
- const firstFrame=task.appMode==='full'&&!task.generationTasks.length?await prepareFirstFrame(task):undefined;
+ const hasPersistedFirstFrame=task.generationTasks.some(job=>Boolean(job.request.firstFrame));
+ if(route.provider==='wan'&&!task.assets.some(asset=>asset.kind==='first_frame')&&!hasPersistedFirstFrame)throw new Error('Wan 高保真生成必须上传已包含目标模特与商品的成片首帧图');
+ const persistedFirstFrame=task.generationTasks.find(job=>job.request.firstFrame)?.request.firstFrame;
+ const firstFrame=persistedFirstFrame||(task.appMode==='full'&&!task.generationTasks.length?await prepareFirstFrame(task):undefined);
  for(const id of selected){if(task.generationTasks.some(j=>j.variantId===id))continue;const variant=task.plan.variants.find(v=>v.id===id);if(!variant)throw new Error('Selected variant missing');
-  const request:VideoGenerationRequest={taskId:task.id,variantId:id,model:route.model,mode:'image-to-video',prompt:productionPrompt(variant,route.duration).prompt,duration:route.duration,aspect_ratio:'9:16',quality:'high',resolution:route.resolution,firstFrame};
+  const modelIds=task.assets.filter(asset=>asset.kind==='model').map(asset=>asset.file);
+  const productIds=task.assets.filter(asset=>asset.kind==='product').map(asset=>asset.file);
+  const request:VideoGenerationRequest={taskId:task.id,variantId:id,model:route.model,mode:'image-to-video',prompt:productionPrompt(variant,route.duration).prompt,duration:route.duration,aspect_ratio:'9:16',quality:'high',resolution:route.resolution,firstFrame,input_manifest:{analysis_reference_ids:[...modelIds,...productIds],qc_reference_ids:[...modelIds,...productIds],provider_reference_ids:firstFrame?[firstFrame.id]:[]}};
   task.generationTasks.push({id:randomUUID(),variantId:id,provider:route.provider,model:route.model,status:'PENDING',created_at:new Date().toISOString(),updated_at:new Date().toISOString(),request});
  }
  task.results=selected.map(id=>task.results.find(r=>r.id===id)||{id,name:task.plan!.variants.find(v=>v.id===id)!.name,status:'waiting'});

@@ -124,7 +124,7 @@ test('Quality Agent evaluates scores, dimensions, and pass/fail thresholds', asy
   assert.match(emptyReport.issues[0], /视频文件为空/);
 });
 
-test('Retry Agent enforces max 2 retries and generates targeted prompt refinements', () => {
+test('Retry Agent enforces the single targeted Wan retry budget', () => {
   const request = {
     taskId: 'test-task',
     variantId: 'V1' as const,
@@ -158,10 +158,10 @@ test('Retry Agent enforces max 2 retries and generates targeted prompt refinemen
   assert.match(retry1.refined_prompt, /weight shifts naturally/);
   assert.match(retry1.refined_prompt, /Product showcase tuning/);
 
-  // Attempt 1 -> Retry 2
+  // Attempt 1 -> budget exhausted; a second paid attempt is forbidden.
   const retry2 = evaluateRetrySkill(report, { ...request, prompt: retry1.refined_prompt }, 1);
-  assert.equal(retry2.can_retry, true);
-  assert.equal(retry2.attempt, 2);
+  assert.equal(retry2.can_retry, false);
+  assert.equal(retry2.attempt, 1);
 
   // Attempt 2 -> Reached maximum
   const retry3 = evaluateRetrySkill(report, request, MAX_RETRIES_PER_VARIANT);

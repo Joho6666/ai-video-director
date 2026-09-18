@@ -16,6 +16,7 @@ import {
   type AgentContext,
 } from './agents';
 import { WorkflowStateManager, type FinalRecommendation } from './state';
+import { normalizeDimensionName } from '../skills/quality';
 
 export interface SchedulerOptions {
   providerOverride?: VideoGenerationProvider;
@@ -45,8 +46,7 @@ export async function hasCurrentQualityReport(
   const logged = reports.some(report =>
     report.variant_id === job.variantId &&
     report.attempt === attempt &&
-    report.evaluation_mode === expectedMode &&
-    report.passed === true,
+    report.evaluation_mode === expectedMode,
   );
   if (!logged) return false;
 
@@ -58,8 +58,7 @@ export async function hasCurrentQualityReport(
     const report = JSON.parse(await readFile(reportPath, 'utf8')) as Record<string, unknown>;
     return report.variant_id === job.variantId &&
       report.attempt === attempt &&
-      report.evaluation_mode === 'visual' &&
-      report.passed === true;
+      report.evaluation_mode === 'visual';
   } catch {
     return false;
   }
@@ -177,13 +176,20 @@ export class WorkflowScheduler {
 
     if(task.generationTasks.length && stateManager.currentStatus==='FAILED')stateManager.resumeProduction();
 
-    const firstFrame = task.appMode === 'full' && !task.generationTasks.length ? await prepareFirstFrame(task) : undefined;
+    const hasPersistedFirstFrame = task.generationTasks.some(job => Boolean(job.request.firstFrame));
+    if (route.provider === 'wan' && !task.assets.some(asset => asset.kind === 'first_frame') && !hasPersistedFirstFrame) {
+      throw new Error('Wan 高保真生成必须上传已包含目标模特与商品的成片首帧图');
+    }
+    const persistedFirstFrame = task.generationTasks.find(job => job.request.firstFrame)?.request.firstFrame;
+    const firstFrame = persistedFirstFrame || (task.appMode === 'full' && !task.generationTasks.length ? await prepareFirstFrame(task) : undefined);
 
     for (const id of selected) {
       if (task.generationTasks.some(j => j.variantId === id)) continue;
       const variant = task.plan!.variants.find(v => v.id === id);
       if (!variant) throw new Error('Selected variant missing');
 
+      const modelIds = task.assets.filter(asset => asset.kind === 'model').map(asset => asset.file);
+      const productIds = task.assets.filter(asset => asset.kind === 'product').map(asset => asset.file);
       const request: VideoGenerationRequest = {
         taskId: task.id,
         variantId: id,
@@ -195,6 +201,11 @@ export class WorkflowScheduler {
         quality: 'high',
         resolution: route.resolution,
         firstFrame,
+        input_manifest: {
+          analysis_reference_ids: [...modelIds, ...productIds],
+          qc_reference_ids: [...modelIds, ...productIds],
+          provider_reference_ids: firstFrame ? [firstFrame.id] : [],
+        },
       };
 
       task.generationTasks.push({
@@ -226,7 +237,7 @@ export class WorkflowScheduler {
       let job = task.generationTasks.filter(j=>j.variantId===selectedId).at(-1)!;
       if(job.provider!==provider.name || (!options.providerOverride && job.model!==route.model))throw new Error('Saved provider/model differs; refusing to reroute');
       const result = task.results.find(r => r.id === job.variantId)!;
-      if (job.status === 'COMPLETED' && result.status === 'completed') {
+      if (job.status === 'COMPLETED' && (result.status === 'completed' || result.status === 'failed')) {
         if (await hasCurrentQualityReport(task, stateManager, job)) continue;
         // A crash can leave the video and task marked completed after the
         // quality write was interrupted. Reopen only the review gate and let
@@ -243,7 +254,7 @@ export class WorkflowScheduler {
       if (!Number.isInteger(retryCount) || retryCount < 0 || retryCount > 2) {
         throw new Error(`Invalid persisted retry attempt for ${job.variantId}; refusing to spend outside budget`);
       }
-      const maxRetries=Math.min(2,Math.max(0,options.maxRetries??2));
+      const maxRetries=Math.min(provider.name==='wan'?1:2,Math.max(0,options.maxRetries??(provider.name==='wan'?1:2)));
       let passed = false;
       let finalVideoPath = '';
 
@@ -299,9 +310,17 @@ export class WorkflowScheduler {
         // paid retry path. Uncertainty and QC transport/schema failures never
         // reach this branch (they throw), while a valid report with
         // retry_required=false must stop and preserve the downloaded video.
-        if (qualityReport.retry_required !== true) {
+        const wanProductDefect = provider.name !== 'wan' || qualityReport.evidence.some(e =>
+          normalizeDimensionName(e.dimension) === 'product_consistency' &&
+          e.status === 'observed' && e.confidence !== 'low' &&
+          (e.severity === 'medium' || e.severity === 'high') && e.frame_ids.length > 0 &&
+          e.reference_ids.some(id => /^product_\d{2}$/.test(id))
+        );
+        if (qualityReport.retry_required !== true || !wanProductDefect) {
           result.status = 'failed';
-          result.error = 'Visual quality did not pass; no evidence-backed repair is eligible for retry';
+          result.error = provider.name === 'wan' && !wanProductDefect
+            ? '商品质量问题没有满足可修复证据门槛，已保留成片且不重复扣费'
+            : 'Visual quality did not pass; no evidence-backed repair is eligible for retry';
           await persistTasks();
           break;
         }
@@ -355,8 +374,23 @@ export class WorkflowScheduler {
     else delete task.finalRecommendation;
 
     // 7. Finalize & Export
-    const evidenceRaw = await readFile(path.join(root, 'reference-evidence.json'), 'utf8');
-    const evidence = JSON.parse(evidenceRaw);
+    // A resume pass may skip the Director Agent, which is the only writer of
+    // reference-evidence.json. Fall back to the export package copy (or an
+    // explicit empty evidence map) instead of failing an otherwise complete
+    // production run on a file the skipped stage never produced.
+    let evidence: unknown = {};
+    try {
+      evidence = JSON.parse(await readFile(path.join(root, 'reference-evidence.json'), 'utf8'));
+    } catch {
+      try {
+        evidence = JSON.parse(await readFile(path.join(root, 'exports', 'reference-evidence.json'), 'utf8'));
+      } catch {
+        task.logs.push({
+          time: new Date().toISOString(),
+          message: 'reference-evidence.json 缺失（恢复流程跳过导演阶段），导出使用空证据链',
+        });
+      }
+    }
     await createExportPackage(task, root, { reference_evidence: evidence });
 
     if (task.results.some(r => r.status === 'failed')) {

@@ -6,7 +6,7 @@ import type {Capabilities,GenerationStatus,VideoGenerationProvider,VideoGenerati
 // Verified against platform.minimax.cn/docs/api-reference/video-generation-i2v,
 // video-generation-query and video-generation-download on 2026-09-16.
 export const MINIMAX_MODEL='MiniMax-Hailuo-2.3';
-export const MINIMAX_CAPABILITIES:Capabilities={modes:['image-to-video'],durations:[6],resolution:'1080P',aspectRatio:'9:16',maxPrompt:2000};
+export const MINIMAX_CAPABILITIES:Capabilities={modes:['image-to-video'],durations:[6],resolution:'1080P',aspectRatio:'9:16',maxPrompt:2000,inputPolicy:{firstFrame:'required',referenceImages:'unsupported',referenceVideo:'unsupported'}};
 type ResponseBody={task_id?:string;status?:string;file_id?:string;file?:{download_url?:string};base_resp?:{status_code:number}};
 export class MiniMaxProvider implements VideoGenerationProvider {
  readonly name='minimax' as const;

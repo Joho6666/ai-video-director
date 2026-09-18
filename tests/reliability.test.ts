@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import {randomUUID} from 'node:crypto';
 import {mkdir,writeFile,readFile} from 'node:fs/promises';
 import path from 'node:path';
-import {projectDir,acquireTaskLock} from '../packages/shared/storage';
+import {projectDir,acquireTaskLock,jsonWrite} from '../packages/shared/storage';
 import {executeGeneration,loadGenerationTasks,validateGenerationTasks} from '../packages/agent/production';
 import {WorkflowStateManager} from '../packages/orchestrator/state';
 import type {GenerationTask,VideoGenerationProvider} from '../packages/video-provider/types';
@@ -32,6 +32,14 @@ test('corrupt agent run fails closed and lock release checks owner',async()=>{
  const release=await acquireTaskLock(id);assert.ok(release);assert.equal(await acquireTaskLock(id),null);
  await writeFile(path.join(root,'run.lock'),JSON.stringify({owner:'replacement',pid:process.pid}));await release();assert.equal(JSON.parse(await readFile(path.join(root,'run.lock'),'utf8')).owner,'replacement');
 });
+test('a partially written task lock fails closed without crashing recovery',async()=>{
+ const id=randomUUID(),root=projectDir(id);await mkdir(root,{recursive:true});
+ await writeFile(path.join(root,'run.lock'),'');
+ assert.equal(await acquireTaskLock(id),null);
+});
+test('failed pre-generation checkpoint resumes planning without a paid attempt',async()=>{
+ const manager=new WorkflowStateManager(randomUUID(),'full');manager.transition('ANALYZING','director','analysis');manager.transition('PLANNING','director','plan');manager.setError('persistence interruption');assert.equal(manager.currentStatus,'FAILED');manager.resumePlanning();assert.equal(manager.currentStatus,'PLANNING');assert.match(manager.currentLog.transitions.at(-1)?.message||'',/未提交视频任务/);
+});
 test('missing generation ledger fails closed after production evidence exists',async()=>{
  const f=fixture();const id=randomUUID();f.job.request.taskId=id;const task:Task={id,project_id:id,createdAt:'now',updatedAt:'now',requirement:'test',assets:[],status:'FAILED',appMode:'full',provider:'wan',director:'deepseek',logs:[],results:[{id:'V1',name:'V1',status:'failed',providerTaskId:'remote'}],generationTasks:[f.job]};
  await mkdir(projectDir(id),{recursive:true});await assert.rejects(()=>loadGenerationTasks(task),/refusing to recreate paid attempts/);
@@ -41,4 +49,10 @@ test('persisted attempt values are bounded before any paid execution',()=>{
 });
 test('task and generation ledgers must agree before recovery',async()=>{
  const f=fixture();const id=randomUUID();f.job.request.taskId=id;const root=projectDir(id);await mkdir(root,{recursive:true});await writeFile(path.join(root,'generation-tasks.json'),JSON.stringify([f.job]));const task={id,project_id:id,createdAt:'now',updatedAt:'now',requirement:'test',assets:[],status:'FAILED',appMode:'full',provider:'wan',director:'deepseek',logs:[],results:[{id:'V1',name:'V1',status:'failed'}],generationTasks:[{...f.job,task_id:'different-remote'}]} as Task;await assert.rejects(()=>loadGenerationTasks(task),/disagrees with task\.json/);
+});
+test('concurrent JSON writes to one task file are serialized',async()=>{
+ const file=path.join(projectDir(randomUUID()),'concurrent.json');
+ await Promise.all(Array.from({length:12},(_,i)=>jsonWrite(file,{sequence:i,payload:'durable'})));
+ const saved=JSON.parse(await readFile(file,'utf8')) as {sequence:number;payload:string};
+ assert.equal(typeof saved.sequence,'number');assert.equal(saved.payload,'durable');
 });

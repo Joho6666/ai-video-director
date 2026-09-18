@@ -4,7 +4,10 @@ import {projectDir} from '../../shared/storage';
 import type {Capabilities,GenerationStatus,VideoGenerationProvider,VideoGenerationRequest} from '../types';
 
 export const SEEDANCE_MODEL='seedance-2.0';
-export const SEEDANCE_CAPABILITIES:Capabilities={modes:['image-to-video'],durations:[8],resolution:'1080P',aspectRatio:'9:16',maxPrompt:2400};
+// The current adapter is retained only for legacy tasks. It is deliberately
+// not advertised as multi-reference until its official request mapping is
+// re-verified and covered by a live contract test.
+export const SEEDANCE_CAPABILITIES:Capabilities={modes:['image-to-video'],durations:[8],resolution:'1080P',aspectRatio:'9:16',maxPrompt:2400,inputPolicy:{firstFrame:'optional',referenceImages:'unsupported',referenceVideo:'unsupported'}};
 
 type ArkTask={id?:string;status?:string;content?:{video_url?:string};error?:{message?:string}};
 

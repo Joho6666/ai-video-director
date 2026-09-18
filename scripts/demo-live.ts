@@ -8,7 +8,7 @@ import { runPreflight } from './demo-preflight-lib';
 import { exec as execCommand } from 'node:child_process';
 import { promisify } from 'node:util';
 
-type GoldenCase = { reference_video: string; model_image: string; product_image: string; requirement: string; selected_variant: 'V1'|'V2'|'V3'; provider_preference: 'wan'|'minimax' };
+type GoldenCase = { reference_video: string; model_image: string; product_image: string; first_frame_image?: string; requirement: string; selected_variant: 'V1'|'V2'|'V3'; provider_preference: 'wan'|'minimax' };
 const exec = promisify(execCommand);
 
 async function submit(base: string, golden: GoldenCase) {
@@ -18,6 +18,7 @@ async function submit(base: string, golden: GoldenCase) {
   form.append('modelImages', await read(golden.model_image, 'model.jpg', 'image/jpeg'));
   form.append('productImages', await read(golden.product_image, 'product.jpg', 'image/jpeg'));
   form.set('requirement', golden.requirement);
+  if (golden.first_frame_image) form.set('firstFrameImage', await read(golden.first_frame_image, 'first-frame.jpg', 'image/jpeg'));
   form.set('selectedVariants', JSON.stringify([golden.selected_variant]));
   const response = await fetch(`${base}/api/tasks`, { method: 'POST', headers: { 'Idempotency-Key': randomUUID() }, body: form });
   const body = await response.json() as { id?: string; error?: string };

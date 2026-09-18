@@ -69,6 +69,14 @@ test('Wan HTTP mapping handles submit, status, download without exposing vendor 
  assert.equal((await provider.getResult('wan_remote_1')).url,'https://cdn.example/wan.mp4');
  assert.match(calls.at(-1)!,/tasks\/wan_remote_1/);
 });
+test('Wan capability is single-first-frame only and rejects secondary references before transport',async()=>{
+ const id=randomUUID();await mkdir(path.join(projectDir(id),'production'),{recursive:true});await writeFile(path.join(projectDir(id),'production/first-frame.jpg'),Buffer.from('fixture-only'));
+ let calls=0;const provider=new WanProvider(wanConfig,(async()=>{calls++;return Response.json({});}) as typeof fetch);
+ assert.equal(provider.capabilities.inputPolicy?.firstFrame,'required');
+ assert.equal(provider.capabilities.inputPolicy?.referenceImages,'unsupported');
+ await assert.rejects(()=>provider.createTask({taskId:id,variantId:'V1',model:WAN_MODEL,mode:'image-to-video',prompt:'Walk',duration:5,aspect_ratio:'9:16',quality:'high',resolution:'720P',firstFrame:{id:'first_frame_01',file:'production/first-frame.jpg',sha256:'fixture'},referenceImages:[{id:'model_01',file:'uploads/model.jpg'}]}),/reference images and video are not provider inputs/);
+ assert.equal(calls,0);
+});
 test('Wan missing key, HTTP/business errors, malformed and unknown states fail',async()=>{
  assert.throws(()=>new WanProvider({...wanConfig,key:''}),/UNAVAILABLE/);
  assert.throws(()=>new WanProvider({...wanConfig,base:'https://untrusted.com'}),/official DashScope/);

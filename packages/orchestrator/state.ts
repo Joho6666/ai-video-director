@@ -225,6 +225,18 @@ export class WorkflowStateManager {
     delete this.log.error;
   }
 
+  /** Resume after a crash between Director/provider planning and the first
+   * paid generation attempt. No remote attempt exists in this branch, so it is
+   * safe to reopen the durable planning checkpoint. */
+  resumePlanning(): void {
+    if(this.log.status!=='FAILED')return;
+    const timestamp=new Date().toISOString();
+    this.log.transitions.push({from:'FAILED',to:'PLANNING',agent:'orchestrator',timestamp,message:'恢复未提交视频任务；继续已保存的导演方案与 Provider 决策'});
+    this.log.status='PLANNING';
+    this.log.current_agent='orchestrator';
+    delete this.log.error;
+  }
+
   async persist(): Promise<void> {
     await jsonWrite(path.join(this.rootPath, 'agent-run.json'), this.log);
   }

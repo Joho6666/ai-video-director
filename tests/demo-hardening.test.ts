@@ -46,6 +46,7 @@ test('real provider route and compiled prompt share duration and resolution', ()
 test('customer errors hide provider transport details and preserve manual verification', () => {
   assert.equal(customerErrorMessage('UND_ERR_CONNECT_TIMEOUT'), '视频生成服务暂时无法连接');
   assert.equal(customerErrorMessage('Wan submission outcome unknown; manual verification required; no resubmission'), '提交状态不确定，请人工确认，系统不会重复扣费');
+  assert.equal(customerErrorMessage('Visual quality did not pass; retained downloaded MP4'), '质量审核未通过，已保留成片供查看');
 });
 
 test('replay requires a passing visual QC artifact and sanitizes result errors', async () => {

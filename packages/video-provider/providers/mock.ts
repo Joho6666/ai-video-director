@@ -5,7 +5,7 @@ import {projectDir,readTask,mediaUrl} from '../../shared/storage';
 import type {VideoGenerationProvider,VideoGenerationRequest,GenerationStatus,Capabilities} from '../types';
 export class MockProvider implements VideoGenerationProvider {
  readonly name='mock' as const;
- readonly capabilities:Capabilities={modes:['image-to-video'],durations:[8],resolution:'640P',aspectRatio:'9:16',maxPrompt:2000};
+ readonly capabilities:Capabilities={modes:['image-to-video'],durations:[8],resolution:'640P',aspectRatio:'9:16',maxPrompt:2000,inputPolicy:{firstFrame:'optional',referenceImages:'unsupported',referenceVideo:'unsupported'}};
  private parse(id:string){const m=/^mock:([a-f0-9-]{36}):(V[123])$/.exec(id);if(!m)throw new Error('Invalid Mock task ID');return {task:m[1],variant:m[2]};}
  async createTask(input:VideoGenerationRequest){
   const root=projectDir(input.taskId);const task=await readTask(input.taskId);const source=task.assets.find(a=>a.kind==='reference');if(!source)throw new Error('Mock reference missing');

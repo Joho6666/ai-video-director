@@ -10,7 +10,7 @@ if (typeof dns.setDefaultResultOrder === 'function') {
 
 // Verified against DashScope video-generation API (wanx2.1-i2v-plus)
 export const WAN_MODEL='wanx2.1-i2v-plus';
-export const WAN_CAPABILITIES:Capabilities={modes:['image-to-video'],durations:[5],resolution:'720P',aspectRatio:'9:16',maxPrompt:2000};
+export const WAN_CAPABILITIES:Capabilities={modes:['image-to-video'],durations:[5],resolution:'720P',aspectRatio:'9:16',maxPrompt:2000,inputPolicy:{firstFrame:'required',referenceImages:'unsupported',referenceVideo:'unsupported'}};
 
 type DashscopeTaskOutput = {
  task_id?: string;
@@ -81,6 +81,8 @@ export class WanProvider implements VideoGenerationProvider {
  async createTask(input:VideoGenerationRequest){
   if(input.model!==this.config.model||input.duration!==5||input.resolution!=='720P'||input.aspect_ratio!=='9:16'||input.mode!=='image-to-video')throw new Error('Wan capability mismatch');
   if(!input.firstFrame||!/^production\/first-frame\.jpg$/.test(input.firstFrame.file))throw new Error('Wan requires a prepared first frame');
+  if(input.referenceImages?.length||input.referenceVideo)throw new Error('Wan only supports one prepared first frame; reference images and video are not provider inputs');
+  if(input.input_manifest?.provider_reference_ids.some(id=>id!==input.firstFrame?.id))throw new Error('Wan provider input manifest must contain only the prepared first frame');
   if(!input.prompt.trim()||input.prompt.length>2000)throw new Error('Wan prompt length invalid');
   const data=await readFile(path.join(projectDir(input.taskId),input.firstFrame.file));
   if(data.length>=20*1024*1024)throw new Error('Wan first frame exceeds 20 MB');

@@ -8,6 +8,13 @@ export class VideoProductionWorkflow {
     const stateManager = await WorkflowStateManager.load(task.id, task.appMode);
 
     try {
+      // A crash after Director planning but before the generation ledger is
+      // written has not submitted a paid provider task. Resume that durable
+      // checkpoint instead of leaving the UI indefinitely in "planning".
+      if (task.appMode === 'full' && task.plan && !task.generationTasks?.length && stateManager.currentStatus === 'FAILED') {
+        stateManager.resumePlanning();
+        await stateManager.persist();
+      }
       if (task.appMode === 'full' && !options.skipPi) {
         await runPiProduction(task, stateManager, options);
       } else {

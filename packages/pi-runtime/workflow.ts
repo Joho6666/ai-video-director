@@ -77,17 +77,30 @@ export async function runPiProduction(task: Task, stateManager: WorkflowStateMan
         const visualReports = Object.fromEntries(Object.entries(stateManager.currentLog.quality_reports).map(([id, reports]) => [id, reports.filter(report => report.evaluation_mode === 'visual')]));
         const missing = required.filter(id => !visualReports[id]?.length);
         const reports = Object.values(visualReports).flat();
-        stage = 'finalize';
-        return { status: generationError || missing.length ? 'incomplete' : 'reviewed', reports: reports.length, passed: reports.filter(r => r.passed).length, missing_reports: missing };
+        // A failed QC with usable evidence may still be repaired by the guarded
+        // scheduler, which owns the retry budget. Route to refine so the model
+        // can acknowledge the repair step; without evidence we cannot refine
+        // and must go straight to finalization to keep the failure on record.
+        const repairable = Boolean(generationError) && reports.length > 0 && reports.some(report => !report.passed);
+        stage = repairable ? 'refine' : 'finalize';
+        return { status: generationError || missing.length ? 'incomplete' : 'reviewed', reports: reports.length, passed: reports.filter(r => r.passed).length, missing_reports: missing, repairable };
       } },
-    { name: 'refine_generation', description: '仅在真实 QC 有证据且安全 scheduler 尚未耗尽预算时确认靶向修正。', ...empty, output: statusOutput,
-      execute: async () => { if (stage !== 'refine') throw new Error('refine is not required or is out of order'); throw new Error('Targeted refinement is executed only inside the guarded scheduler; no standalone paid retry is allowed'); } },
+    { name: 'refine_generation', description: '确认靶向修正已由安全 scheduler 在预算内执行；本工具只做审计确认，不单独发起付费重试。', ...empty, output: statusOutput,
+      execute: async () => {
+        if (stage !== 'refine') throw new Error('refine is not required or is out of order');
+        // The guarded scheduler already owns retry execution and its budget.
+        // This tool exists so the model's audit trail records the repair
+        // decision; it must never submit an independent paid retry.
+        const retryUsed = task.generationTasks?.some(job => (job.attempt ?? 0) > 0) ?? false;
+        stage = 'finalize';
+        return { status: retryUsed ? 'refined' : 'refine_not_required', attempts: task.generationTasks?.length ?? 0 };
+      } },
     { name: 'finalize_delivery', description: '确认导出与最终状态，保留失败报告并禁止无证据推荐。', ...empty, output: resultOutput,
       execute: async () => { if (stage !== 'finalize') throw new Error('finalize is out of order'); finalized = true; return { status: 'finalized', task_status: task.status, results: task.results.map(r => ({ id: r.id, status: r.status })) }; } },
   ];
   try {
    const result = await runPiAgent({
-    systemPrompt: `You are Pi Video Agent orchestrator. Resume at the ${stage} stage and call exactly one allowed tool per turn. The normal order is analyze_reference, build_director_plan, select_video_provider, generate_video, review_video, then finalize_delivery. Never claim completion without calling the tools. The server enforces state and payment safety.`,
+    systemPrompt: `You are Pi Video Agent orchestrator. Resume at the ${stage} stage and call exactly one allowed tool per turn. The normal order is analyze_reference, build_director_plan, select_video_provider, generate_video, review_video, then finalize_delivery. If review_video reports repairable=true, call refine_generation before finalize_delivery; otherwise call finalize_delivery directly. Never claim completion without calling the tools. Never invent a tool name or call one out of order — the server rejects it. The server enforces state and payment safety; the guarded scheduler alone owns any paid retry.`,
     prompt: `Run the production workflow for this task from the ${stage} stage. Use one tool per turn and stop only after finalize_delivery.`,
     tools,
     canExecute: async (name) => {
