@@ -1,0 +1,28 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.local/ai-commercial-video-director/performance-timeline.schema.json",
+  "title": "Performance Timeline",
+  "type": "object",
+  "required": ["segments", "continuity_check"],
+  "properties": {
+    "segments": {
+      "type": "array", "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["segment_id", "time_range", "start_state", "transition", "end_state", "duration", "body_weight", "gaze", "facial_expression", "arm_motion", "secondary_motion"],
+        "properties": {
+          "segment_id": {"type": "string"}, "time_range": {"type": "string"},
+          "start_state": {"type": "string", "minLength": 1}, "transition": {"type": "string", "minLength": 1},
+          "end_state": {"type": "string", "minLength": 1}, "duration": {"type": "number", "exclusiveMinimum": 0},
+          "body_weight": {"type": "string", "minLength": 1}, "gaze": {"type": "string", "minLength": 1},
+          "facial_expression": {"type": "string", "minLength": 1}, "arm_motion": {"type": "string", "minLength": 1},
+          "secondary_motion": {"type": "string", "minLength": 1}, "camera_state": {"type": "string"},
+          "subject_position": {"type": "string"}
+        }, "additionalProperties": false
+      }
+    },
+    "continuity_check": {"enum": ["pass", "revise"]},
+    "bridged_discontinuities": {"type": "array", "items": {"type": "string"}}
+  },
+  "additionalProperties": false
+}

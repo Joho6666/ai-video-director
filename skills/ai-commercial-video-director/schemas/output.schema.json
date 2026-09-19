@@ -1,0 +1,71 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.local/ai-commercial-video-director/output.schema.json",
+  "title": "AI Commercial Video Director Output",
+  "type": "object",
+  "required": ["mode", "reference_analysis", "shot_dna", "variations", "assumptions", "limitations", "quality_check"],
+  "properties": {
+    "mode": {"enum": ["RECREATE", "INSPIRE", "FUSION"]},
+    "reference_analysis": {
+      "type": "array", "minItems": 1,
+      "items": {
+        "type": "object", "required": ["reference_id", "scene", "shot_size", "camera_position", "camera_angle", "camera_motion", "composition", "subject_trajectory", "actions", "performance", "lighting", "rhythm", "commercial_intent"],
+        "properties": {
+          "reference_id": {"type": "string"},
+          "scene": {"type": "string"}, "shot_size": {"type": "string"}, "camera_position": {"type": "string"},
+          "camera_angle": {"type": "string"}, "camera_motion": {"type": "string"}, "composition": {"type": "string"},
+          "subject_trajectory": {"type": "string"}, "actions": {"type": "string"}, "performance": {"type": "string"},
+          "lighting": {"type": "string"}, "rhythm": {"type": "string"}, "commercial_intent": {"type": "string"},
+          "confidence_notes": {"type": "array", "items": {"type": "string"}}
+        }, "additionalProperties": false
+      }
+    },
+    "shot_dna": {"$ref": "shot-dna.schema.json"},
+    "variations": {
+      "type": "array", "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["id", "title", "concept", "changed_dimensions", "performance_direction", "timeline", "similarity_report", "compiled_prompts"],
+        "properties": {
+          "id": {"type": "string"}, "title": {"type": "string"}, "concept": {"type": "string"},
+          "changed_dimensions": {"type": "array", "minItems": 3, "uniqueItems": true, "items": {"enum": ["camera_height", "camera_trajectory", "subject_trajectory", "framing", "performance", "entrance", "ending", "environment_interaction"]}},
+          "performance_direction": {
+            "type": "object", "required": ["gait", "body_weight", "shoulders", "arms", "hands", "gaze", "head_movement", "facial_expression", "breathing", "asymmetry", "clothing_inertia", "hair_inertia", "props_inertia"],
+            "additionalProperties": {"type": "string"}
+          },
+          "timeline": {"$ref": "performance-timeline.schema.json"},
+          "similarity_report": {
+            "type": "object", "required": ["subject_trajectory", "camera_trajectory", "action_sequence", "framing", "timing", "composition", "decision"],
+            "properties": {
+              "subject_trajectory": {"enum": ["low", "medium", "high"]}, "camera_trajectory": {"enum": ["low", "medium", "high"]},
+              "action_sequence": {"enum": ["low", "medium", "high"]}, "framing": {"enum": ["low", "medium", "high"]},
+              "timing": {"enum": ["low", "medium", "high"]}, "composition": {"enum": ["low", "medium", "high"]},
+              "decision": {"enum": ["pass", "rewrite", "pass-with-risk"]}, "rewrite_note": {"type": "string"}
+            }, "additionalProperties": false
+          },
+          "compiled_prompts": {
+            "type": "object", "minProperties": 1,
+            "additionalProperties": {
+              "type": "object", "required": ["complete_prompt", "shot_prompt", "motion_prompt", "performance_prompt", "negative_prompt", "first_frame", "last_frame", "reference_usage"],
+              "properties": {
+                "complete_prompt": {"type": "string"}, "shot_prompt": {"type": "string"}, "motion_prompt": {"type": "string"},
+                "performance_prompt": {"type": "string"}, "negative_prompt": {"type": "string"}, "first_frame": {"type": "string"},
+                "last_frame": {"type": "string"}, "reference_usage": {"type": "string"}
+              }, "additionalProperties": false
+            }
+          }
+        }, "additionalProperties": false
+      }
+    },
+    "assumptions": {"type": "array", "items": {"type": "string"}},
+    "limitations": {"type": "array", "items": {"type": "string"}},
+    "quality_check": {
+      "type": "object", "required": ["timeline_continuity", "variation_diversity", "similarity_guard", "prompt_completeness"],
+      "properties": {
+        "timeline_continuity": {"enum": ["pass", "fail"]}, "variation_diversity": {"enum": ["pass", "fail"]},
+        "similarity_guard": {"enum": ["pass", "fail"]}, "prompt_completeness": {"enum": ["pass", "fail"]}
+      }, "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}

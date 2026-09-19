@@ -49,6 +49,47 @@ test('customer errors hide provider transport details and preserve manual verifi
   assert.equal(customerErrorMessage('Visual quality did not pass; retained downloaded MP4'), '质量审核未通过，已保留成片供查看');
 });
 
+test('healthy progress logs survive customerization unchanged', () => {
+  // Literal messages persisted by a run that worked. The previous sanitizer
+  // matched on vendor/product words alone, so every one of these was rewritten
+  // into a "服务暂时不可用" line and a successful run looked like an outage.
+  const healthy = [
+    '素材已保存',
+    '正在读取视频元数据并动态抽取参考帧',
+    'DeepSeek 正在识别人物动作并提取 Shot DNA',
+    'Pi Tool analyze_reference 完成',
+    'Producer Agent 生产决策：WAN (wanx2.1-i2v-plus) · 5s · Router resolved wan wanx2.1-i2v-plus for ecommerce (5s 720P)',
+    'Pi Tool select_video_provider 完成',
+    'Quality Agent 审核 V1：得分 57/100 [未通过] · 缺陷: qc_frame_01 至 qc_frame_08 之间人物下半身近似静止',
+    '没有通过审核的推荐视频',
+    'Pi Tool generate_video 完成',
+  ];
+  const task = { logs: healthy.map((message, index) => ({ time: `t${index}`, message })) } as unknown as Task;
+  assert.deepEqual(customerizeTask(task).logs?.map(entry => entry.message), healthy);
+});
+
+test('raw transport failures inside logs are still masked', () => {
+  const logs = [
+    { time: 't0', message: 'Pi Tool generate_video 失败: fetch failed' },
+    { time: 't1', message: 'Wan HTTP 502' },
+  ];
+  const task = { logs } as unknown as Task;
+  assert.deepEqual(customerizeTask(task).logs?.map(entry => entry.message), [
+    '视频生成服务暂时无法连接',
+    '视频生成服务暂时无法连接',
+  ]);
+});
+
+test('business guidance mentioning a provider keeps its meaning', () => {
+  // "Wan ..." here is an instruction, not a connection failure.
+  for (const message of [
+    'Wan 高保真生成必须上传已包含目标模特与商品的成片首帧图',
+    '商品质量问题没有满足可修复证据门槛，已保留成片且不重复扣费',
+  ]) {
+    assert.equal(customerErrorMessage(message), message);
+  }
+});
+
 test('replay requires a passing visual QC artifact and sanitizes result errors', async () => {
   const id = '11111111-1111-4111-8111-111111111111';
   const root = projectDir(id);

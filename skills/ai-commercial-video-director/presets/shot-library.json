@@ -1,0 +1,11 @@
+{
+  "name": "fashion-shot-seeds",
+  "usage": "Idea seeds only. Do not copy a seed unchanged across variations.",
+  "seeds": [
+    {"id": "lateral-window-pass", "camera": "eye-level lateral track", "subject": "diagonal walk with window reflection interaction", "product": "silhouette and side seam"},
+    {"id": "foreground-reveal", "camera": "static medium telephoto feel behind foreground occlusion", "subject": "enter, pause, adjust cuff, exit across frame", "product": "cuff and front construction"},
+    {"id": "low-arc-settle", "camera": "low three-quarter arc ending static", "subject": "short approach, planted turn, settle", "product": "volume and hem response"},
+    {"id": "reverse-lead-release", "camera": "camera leads then releases subject laterally", "subject": "approach, brief off-camera attention, pass camera", "product": "front-to-side transition"},
+    {"id": "architectural-crossing", "camera": "locked wide with a late restrained pan", "subject": "cross strong lines, interact with rail or doorway", "product": "scale, movement, environment fit"}
+  ]
+}

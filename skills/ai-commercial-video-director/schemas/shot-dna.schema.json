@@ -1,0 +1,17 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.local/ai-commercial-video-director/shot-dna.schema.json",
+  "title": "Shot DNA",
+  "type": "object",
+  "required": ["visual_purpose", "emotion", "camera_language", "product_display_logic", "keep", "mutate"],
+  "properties": {
+    "visual_purpose": {"type": "string", "minLength": 1},
+    "emotion": {"type": "string", "minLength": 1},
+    "camera_language": {"type": "array", "minItems": 1, "items": {"type": "string"}},
+    "product_display_logic": {"type": "array", "minItems": 1, "items": {"type": "string"}},
+    "keep": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string"}},
+    "mutate": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string"}},
+    "source_map": {"type": "object", "additionalProperties": {"type": "array", "items": {"type": "string"}}}
+  },
+  "additionalProperties": false
+}

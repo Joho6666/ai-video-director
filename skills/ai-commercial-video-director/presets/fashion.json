@@ -1,0 +1,8 @@
+{
+  "name": "fashion-human-performance-mvp",
+  "defaults": {"mode": "INSPIRE", "variation_count": 5, "analysis_language": "zh-CN", "prompt_language": "en"},
+  "commercial_priorities": ["silhouette readability", "material response", "fit and proportion", "aspirational performance", "clean end frame"],
+  "performance_limits": {"preferred_beats_for_4_to_8_seconds": [2, 4], "lens_contact": "brief and motivated", "arm_motion": "asymmetric and task-aware", "turning": "prepared by foot placement and weight shift"},
+  "product_beats": ["establish full silhouette", "reveal one construction detail", "show material in motion", "land on a readable final shape"],
+  "avoid": ["runway stiffness", "permanent eye contact", "perfect bilateral arm swing", "instant smile", "weightless garment", "too many gestures"]
+}
