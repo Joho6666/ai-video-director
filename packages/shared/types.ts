@@ -30,6 +30,7 @@ export type Plan = z.infer<typeof planSchema>;
 export { type MotionDna, motionDnaSchema } from './motion-dna.schema';
 export type Result = { id:string; name:string; status:'waiting'|'generating'|'completed'|'failed'; providerTaskId?:string; url?:string; error?:string; qualityScore?:number; qualityFeedback?:string[] };
 export type AppMode='mock'|'agent'|'director'|'full';
+export type ProviderPreference='auto'|'wan'|'minimax';
 export type Task = {
   id:string;
   project_id:string;
@@ -40,6 +41,7 @@ export type Task = {
   status:Status;
   appMode:AppMode;
   provider:'mock'|'seedance'|'minimax'|'wan'|'veo'|null;
+  providerPreference?: ProviderPreference;
   director:'mock'|'deepseek';
   idempotencyKey?:string;
   logs:{time:string;message:string}[];

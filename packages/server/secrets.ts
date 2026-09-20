@@ -130,6 +130,18 @@ export async function getProviderConfig(provider: ProviderId, env: Record<string
   };
 }
 
+/** Load local credentials for server-side provider adapters only. */
+export async function hydrateEnvironment(env: Record<string, string | undefined> = process.env): Promise<void> {
+  const providers: ProviderId[] = ['deepseek', 'wan', 'minimax', 'seedance'];
+  for (const provider of providers) {
+    const config = await getProviderConfig(provider, env);
+    const meta = DEFAULT_METADATA[provider];
+    if (config.key && !env[meta.envKeyNames[0]]) env[meta.envKeyNames[0]] = config.key;
+    if (config.baseUrl && !env[meta.envBaseName]) env[meta.envBaseName] = config.baseUrl;
+    if (config.model && !env[meta.envModelName]) env[meta.envModelName] = config.model;
+  }
+}
+
 export async function setSecret(
   provider: ProviderId,
   data: { key?: string; baseUrl?: string; model?: string }

@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { referenceEvidenceSchema,deepSeekEnvelopeSchema,validateEvidenceFrameIds,normalizeUnknownProductShowcase,normalizeProductEvidenceSources,normalizeUnknownMotionEvidence } from '../packages/agent/deepseek';
+import { referenceEvidenceSchema,deepSeekEnvelopeSchema,validateEvidenceFrameIds,normalizeUnknownProductShowcase,normalizeProductEvidenceSources,normalizeUnknownMotionEvidence,normalizeEvidenceFrameIds } from '../packages/agent/deepseek';
 import { mockSupplements,checkPlan } from '../packages/director';
 import { mockTreatment } from '../packages/director/mock';
 import { mockMotionDna } from '../packages/shared/motion-dna.schema';
@@ -21,6 +21,16 @@ test('evidence status enforces traceability',()=>{
 });
 
 test('evidence rejects missing frame ids',()=>{const item={status:'Unknown' as const,description:'not visible',frame_ids:[]};const evidence=Object.fromEntries(['scene','shot_size','camera_height','camera_angle','camera_motion','subject_trajectory','action_sequence','gaze','head_movement','shoulder_movement','arm_motion','hand_action','body_weight','facial_expression','product_interaction','motion_continuity','lighting','rhythm','product_display_logic'].map(k=>[k,item]));evidence.gaze={status:'Observed',description:'visible',frame_ids:['frame_99']} as never;assert.throws(()=>validateEvidenceFrameIds(referenceEvidenceSchema.parse(evidence),new Set(['frame_01'])));});
+
+test('frame evidence accepts safe zero-padding aliases only',()=>{
+ const item={status:'Observed' as const,description:'visible',frame_ids:['frame_1']};
+ const evidence=Object.fromEntries(['scene','shot_size','camera_height','camera_angle','camera_motion','subject_trajectory','action_sequence','gaze','head_movement','shoulder_movement','arm_motion','hand_action','body_weight','facial_expression','product_interaction','motion_continuity','lighting','rhythm','product_display_logic'].map(k=>[k,{status:'Unknown',description:'not visible',frame_ids:[]} ]));
+ evidence.scene=item as never;
+ const normalized=normalizeEvidenceFrameIds(referenceEvidenceSchema.parse(evidence),new Set(['frame_01','frame_02']));
+ assert.deepEqual(normalized.scene.frame_ids,['frame_01']);
+ const invalid=normalizeEvidenceFrameIds(referenceEvidenceSchema.parse({...evidence,scene:{...item,frame_ids:['frame_9']}}),new Set(['frame_01']));
+ assert.throws(()=>validateEvidenceFrameIds(invalid,new Set(['frame_01'])));
+});
 
 test('dynamic frame count follows duration bands',()=>{assert.equal(frameCountForDuration(10),16);assert.equal(frameCountForDuration(10.1),24);assert.equal(frameCountForDuration(20),24);assert.equal(frameCountForDuration(20.1),32);assert.equal(frameCountForDuration(80),32);});
 

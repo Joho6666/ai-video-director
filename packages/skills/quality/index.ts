@@ -165,6 +165,42 @@ export function normalizeQualityEvidenceLanguage(raw: unknown): unknown {
   return output;
 }
 
+/**
+ * Keep a malformed model response reviewable without treating it as a visual
+ * defect. Product evidence is deliberately downgraded to `uncertain` when it
+ * omits the generated-frame/product-reference pair required by the contract.
+ * This preserves the paid video and prevents a schema formatting mistake from
+ * entering the retry path.
+ */
+export function normalizeMalformedQualityEvidence(raw: unknown, referenceIds: Set<string>): unknown {
+  const normalized = normalizeQualityEvidenceLanguage(raw);
+  if (!normalized || typeof normalized !== 'object' || Array.isArray(normalized)) return normalized;
+  const output = { ...(normalized as Record<string, unknown>) };
+  if (!Array.isArray(output.evidence)) return output;
+  output.evidence = output.evidence.map(item => {
+    if (!item || typeof item !== 'object' || Array.isArray(item)) return item;
+    const evidence = { ...(item as Record<string, unknown>) };
+    const dimension = String(evidence.dimension || '');
+    const isProduct = dimension === 'product_consistency' || dimension === 'product_fidelity';
+    const frameIds = Array.isArray(evidence.frame_ids) ? evidence.frame_ids : [];
+    const refs = Array.isArray(evidence.reference_ids) ? evidence.reference_ids : [];
+    const hasProductReference = refs.some(id => typeof id === 'string' && /^product_\d{2}$/.test(id) && referenceIds.has(id));
+    if (isProduct && evidence.status !== 'uncertain' && (!frameIds.length || !hasProductReference)) {
+      return {
+        ...evidence,
+        status: 'uncertain',
+        severity: 'none',
+        confidence: 'low',
+        frame_ids: [],
+        reference_ids: [],
+        description: `Quality evidence incomplete: product comparison could not be verified (${String(evidence.description || 'no valid frame/reference pair')})`,
+      };
+    }
+    return evidence;
+  });
+  return output;
+}
+
 export function qcFrameCount(duration: number) {
   return duration <= 10 ? 16 : 24;
 }

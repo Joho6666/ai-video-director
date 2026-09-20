@@ -93,6 +93,10 @@ export class WorkflowScheduler {
 
   async run(task: Task, stateManager: WorkflowStateManager, options: SchedulerOptions = {}): Promise<void> {
     const root = projectDir(task.id);
+    // A task's selected route is immutable for its lifetime.  The preference
+    // is converted to the router's single source of truth only for a brand
+    // new task; saved attempts always take precedence below.
+    const routeEnv = { ...(options.env || process.env), ...(task.providerPreference && task.providerPreference !== 'auto' ? { VIDEO_PROVIDER: task.providerPreference } : {}) };
     const ctx: AgentContext = {
       task,
       stateManager,
@@ -138,7 +142,7 @@ export class WorkflowScheduler {
     }
     const resolvedRoute = options.providerOverride || savedRoute
       ? null
-      : resolveVideoRoute(task.appMode, task.taskType, options.env);
+      : resolveVideoRoute(task.appMode, task.taskType, routeEnv);
     if (!options.providerOverride && !savedRoute && !resolvedRoute) throw new Error('Director-only mode cannot produce video');
     const producerDecision = savedRoute
       ? stateManager.currentLog.producer_decision || {
@@ -171,7 +175,7 @@ export class WorkflowScheduler {
     }
     const provider = options.providerOverride || (savedRoute
       ? providerForSavedRoute(savedRoute.provider, savedRoute.model, options.env)
-      : routeProvider(task.appMode, task.taskType, options.env));
+      : routeProvider(task.appMode, task.taskType, routeEnv));
     task.provider = route.provider;
 
     if(task.generationTasks.length && stateManager.currentStatus==='FAILED')stateManager.resumeProduction();
@@ -237,6 +241,18 @@ export class WorkflowScheduler {
       let job = task.generationTasks.filter(j=>j.variantId===selectedId).at(-1)!;
       if(job.provider!==provider.name || (!options.providerOverride && job.model!==route.model))throw new Error('Saved provider/model differs; refusing to reroute');
       const result = task.results.find(r => r.id === job.variantId)!;
+      const persistedVideoPath = path.join(root, 'results', `${job.variantId}.mp4`);
+      let hasPersistedVideo = false;
+      try { hasPersistedVideo = (await stat(persistedVideoPath)).isFile(); } catch { hasPersistedVideo = false; }
+      // A downloaded MP4 is the strongest paid-work checkpoint. Even when a
+      // prior QC response was malformed, resume must review that file instead
+      // of creating another provider attempt.
+      if (hasPersistedVideo && job.status !== 'COMPLETED') {
+        job.status = 'COMPLETED';
+        job.result_url = job.result_url || `/api/media/${task.id}/results/${job.variantId}.mp4`;
+        result.url = job.result_url;
+        await persistTasks();
+      }
       if (job.status === 'COMPLETED' && (result.status === 'completed' || result.status === 'failed')) {
         if (await hasCurrentQualityReport(task, stateManager, job)) continue;
         // A crash can leave the video and task marked completed after the

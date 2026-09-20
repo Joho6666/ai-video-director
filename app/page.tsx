@@ -1,60 +1,871 @@
 'use client';
-/* eslint-disable @next/next/no-img-element */
-import { useEffect,useRef,useState } from 'react';
+
+import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
-import { Aperture,ArrowDownToLine,ArrowRight,Check,ChevronRight,Clapperboard,Clock3,Copy,FileText,Film,ImagePlus,Layers3,LoaderCircle,Plus,Sparkles,Upload,X,AlertCircle,ScanLine,SlidersHorizontal } from 'lucide-react';
-import type { Task } from '@/packages/shared/types';
-const defaultRequirement='参考这个真人视频，为这个产品制作 3 个不同版本的电商广告。人物动作自然，不要机械复刻原视频。保留高级、自然的感觉，但动作、运镜和场景需要有明显差异。人物像真实导购员一样，通过动作、眼神和身体语言自然展示产品版型、材质、设计细节、使用场景与购买理由。';
-const names=['轻奢时尚','都市通勤','活力街拍'];
-const subtitles=['克制表达，让质感成为主角','走进日常，展现真实使用场景','自然互动，捕捉生活的动感'];
-const tags=[['质感','平稳跟随'],['日常','侧向运镜'],['活力','移动机位']];
-function localMedia(task:Task,file:string){return `/api/media/${task.id}/${file}`;}
-type Config={appMode:'mock'|'agent'|'director'|'full';deepseekConfigured:boolean;seedanceConfigured:boolean;deepseekModel:string;seedanceModel:string|null};
-type TaskSummary={id:string;createdAt:string;updatedAt:string;appMode:'mock'|'agent'|'director'|'full';status:string};
-function modeOf(task:Task|null,config:Config){return task?.appMode||config.appMode;}
-function FilePreview({file}:{file:File}){const [url,setUrl]=useState('');useEffect(()=>{const u=URL.createObjectURL(file);setUrl(u);return()=>URL.revokeObjectURL(u);},[file]);if(!url)return <div className="file-preview-loading" aria-label="正在加载预览"/>;return file.type.startsWith('video')?<video src={url} controls preload="metadata"/>:<img src={url} alt={file.name}/>;}
-export default function Home(){
- const [firstFrame,setFirstFrame]=useState<File|null>(null);const [selected,setSelected]=useState<string[]>(['V1']);
- const [reference,setReference]=useState<File|null>(null);const [models,setModels]=useState<File[]>([]);const [products,setProducts]=useState<File[]>([]);const [requirement,setRequirement]=useState(defaultRequirement);
- const [task,setTask]=useState<Task|null>(null);const [submitting,setSubmitting]=useState(false);const [error,setError]=useState('');const [pollError,setPollError]=useState('');const [replayMode,setReplayMode]=useState(false);const [config,setConfig]=useState<Config>({appMode:'mock',deepseekConfigured:false,seedanceConfigured:false,deepseekModel:'deepseek-flash',seedanceModel:null});const [showPlan,setShowPlan]=useState(false);const [recent,setRecent]=useState<TaskSummary[]>([]);
- const resultRef=useRef<HTMLElement>(null);
- const submitKey=useRef('');
- const taskId=task?.id;const taskStatus=task?.status;const manualVerification=Boolean(task?.generationTasks?.some(job=>job.status==='MANUAL_VERIFICATION_REQUIRED'));
- const busy=submitting||manualVerification||!!task&&!['COMPLETED','FAILED'].includes(task.status);
- useEffect(()=>{let cancelled=false;(async()=>{try{const [configResponse,listResponse]=await Promise.all([fetch('/api/config'),fetch('/api/tasks')]);if(configResponse.ok&&!cancelled)setConfig(await configResponse.json());const list=listResponse.ok?await listResponse.json():{tasks:[]};if(!cancelled)setRecent(list.tasks||[]);const params=new URLSearchParams(window.location.search);const isNew=params.get('new')==='1';const replayId=params.get('replay');const requestedReplayId=replayId&&replayId!=='1'?replayId:(replayId==='1'?params.get('task'):null);const fromUrl=params.get('task')||requestedReplayId;const fromStorage=isNew||replayId?null:localStorage.getItem('director-task');const candidates=isNew?[]:[fromUrl,fromStorage,...(list.tasks||[]).map((item:TaskSummary)=>item.id)].filter((id:string|null,index:number,all:(string|null)[]):id is string=>Boolean(id)&&all.indexOf(id)===index);for(const id of candidates){try{const response=await fetch('/api/tasks/'+id);if(!response.ok)continue;const restored=await response.json();if(cancelled)return;const verified=Boolean(replayId&&requestedReplayId===id&&restored.replayVerified===true);if(replayId&&!verified)continue;setTask(restored);setReplayMode(verified);localStorage.setItem('director-task',id);window.history.replaceState(null,'',verified?`?task=${encodeURIComponent(id)}&replay=1`:`?task=${encodeURIComponent(id)}`);return;}catch{continue;}}if(fromStorage)localStorage.removeItem('director-task');}catch{if(!cancelled)setPollError('无法恢复任务，请刷新重试');}})();return()=>{cancelled=true;};},[]);
- useEffect(()=>{if(!taskId||!taskStatus||['COMPLETED','FAILED'].includes(taskStatus))return;let cancelled=false;const timer=setInterval(async()=>{try{const r=await fetch('/api/tasks/'+taskId);if(!r.ok)throw new Error();const data=await r.json();if(!cancelled){setTask(data);setPollError('');}}catch{if(!cancelled)setPollError('连接暂时中断，正在自动重新连接…');}},1000);return()=>{cancelled=true;clearInterval(timer);};},[taskId,taskStatus]);
- function addImages(files:FileList|null,kind:'model'|'product'){if(!files)return;const items=Array.from(files);if(items.some(f=>!['image/jpeg','image/png','image/webp'].includes(f.type)||f.size>10*1024*1024)){setError('图片需为 JPG / PNG / WebP，单张不超过 10 MB');return;}if(items.length+models.length+products.length>9){setError('模特和商品图片合计最多 9 张');return;}setError('');if(kind==='model')setModels(v=>[...v,...items]);else setProducts(v=>[...v,...items]);}
- async function start(){setError('');if(manualVerification){setError('提交状态不确定，请人工确认，系统不会重复扣费');return;}if(!reference){setError('请先上传参考视频');return;}if(!models.length||!products.length){setError('请至少上传一张模特图和一张商品图');return;}if(currentMode==='full'&&!firstFrame){setError('Wan 高保真生成必须上传一张已包含目标模特与商品的成片首帧图');return;}if(!requirement.trim()){setError('请输入创作要求');return;}if(!selected.length){setError('至少选择一个版本');return;}setSubmitting(true);try{if(!submitKey.current)submitKey.current=crypto.randomUUID();const form=new FormData();form.set('referenceVideo',reference);form.set('requirement',requirement);form.set('selectedVariants',JSON.stringify(selected));if(firstFrame)form.set('firstFrameImage',firstFrame);models.forEach(f=>form.append('modelImages',f));products.forEach(f=>form.append('productImages',f));const r=await fetch('/api/tasks',{method:'POST',headers:{'Idempotency-Key':submitKey.current},body:form});const data=await r.json();if(!r.ok)throw new Error(data.error);submitKey.current='';setTask(data);localStorage.setItem('director-task',data.id);window.history.replaceState(null,'',`?task=${encodeURIComponent(data.id)}`);}catch(e){setError(e instanceof Error?e.message:'上传失败，请重试');}finally{setSubmitting(false);}}
- const currentMode = modeOf(task, config);
- const isPlanOnly = currentMode === 'director' || currentMode === 'agent';
- const steps = isPlanOnly
-    ? ['分析参考视频', '生成导演方案', '方案就绪', '导出创作包']
-    : ['分析参考视频', '生成导演方案', '生成视频', '下载成片', 'AI质量审核', '已完成'];
- const phase = task?.status === 'FAILED'
-   ? (task.results?.some(r => r.status === 'completed' || r.status === 'generating') ? 3 : task.plan ? 2 : task.metadata ? 1 : 0)
-   : task
-   ? (['UPLOADED', 'ANALYZING', 'ANALYZING_REFERENCE'].includes(task.status) ? 0
-     : ['EXTRACTING_SHOT_DNA', 'PLANNING', 'PLANNING_VARIANTS'].includes(task.status) ? 1
-      : ['GENERATING', 'GENERATING_V1', 'GENERATING_V2', 'GENERATING_V3'].includes(task.status) ? 2
-     : ['REVIEWING', 'RETRYING'].includes(task.status) ? 4
-     : task.status === 'COMPLETED' ? 5
-     : 2)
-   : -1;
- const completed=currentMode==='director'||currentMode==='agent'?(task?.plan?.variants.length||0):(task?.results.filter(r=>r.status==='completed').length||0);
- return <div className="studio">
- <header className="topbar"><Link className="brand" href="/"><span className="brand-icon"><Aperture size={29}/></span><span>AI Video Director<small>COMMERCE VIDEO STUDIO</small></span></Link><div className="top-message">用 AI，让好产品被看见<span>从一个灵感，到三种商业表达</span></div><span className="workspace"><span className="online"/>本地工作空间 <span className="avatar">D</span></span></header>
- <aside className="sidebar"><div className="workspace-label">工作空间 <span>01</span></div><a className="nav-active" href="#create"><Clapperboard size={19}/>视频创作<span className="nav-dot"/></a><Link className="nav-benchmark" href="/benchmark">Benchmark 看板</Link><button onClick={()=>resultRef.current?.scrollIntoView({behavior:'smooth'})}><Layers3 size={19}/>{currentMode==='director'?'导演方案':'生成结果'}<span className="count">{completed}</span></button><div className="recent-tasks"><strong>最近任务</strong>{recent.map(item=><a key={item.id} href={`?task=${item.id}`}><span>{new Date(item.updatedAt).toLocaleString('zh-CN',{month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit'})}</span><small>{item.appMode.toUpperCase()} · {item.status}</small></a>)}</div><div className="side-note"><span className="little-orbit"><Aperture size={26}/></span><h3>一个参考，<br/>不止一种可能。</h3><p>保留有效的镜头语言，<br/>创造属于产品的新表达。</p><div className="small-line"/><span>REFERENCE → REIMAGINE</span></div><footer>AI Video Director <span>v1.3 · Real Validation</span></footer></aside>
- <main id="create"><div className="breadcrumb">工作空间 <ChevronRight size={13}/> 视频创作</div><div className="page-heading"><div><div className="eyebrow"><span/> YOUR NEXT GREAT PRODUCT STORY</div><h1>创建你的<span>商业视频</span></h1><p>上传参考与素材，让 AI 导演把灵感变成三个不同的创意版本。</p></div><div className="mode-label"><span className="online"/>{currentMode==='mock'?'Mock':currentMode==='director'?'Director':'Full'} Mode</div></div>
- {replayMode&&task&&<div className="mode-explanation" role="status"><div><strong>Verified Previous Run / 已验证历史任务</strong><span>这是本地已验证的历史成片，仅供现场回放，不会重新调用 DeepSeek 或视频 Provider。</span></div><Link href="/?new=1">新建实时任务 <ArrowRight size={14}/></Link></div>}{isPlanOnly&&task&&!replayMode&&<div className="mode-explanation" role="status"><div><strong>这是 Director 方案任务</strong><span>它只分析视频并输出提示词，不会调用视频生成 API。</span></div><Link href="/?new=1">新建真实视频任务 <ArrowRight size={14}/></Link></div>}
- <div className="input-grid"><section className="input-card"><div className="card-heading"><span className="step-icon"><Film size={21}/></span><div><h2>上传参考视频</h2><p>从喜欢的镜头语言开始</p></div><span className="step-number">01</span></div><div className="card-content">{reference?<div className="reference-preview"><FilePreview file={reference}/><div><strong>{reference.name}</strong><small>{(reference.size/1024/1024).toFixed(1)} MB · 已选择</small><button disabled={busy} onClick={()=>setReference(null)} aria-label="移除参考视频"><X size={15}/></button></div></div>:<label className={`dropzone ${busy?'disabled':''}`}><span className="upload-glyph"><Upload size={25}/></span><strong>点击上传参考视频</strong><span>选择一段你喜欢的真人商业视频</span><small>MP4 / MOV · 1–120 秒 · 最大 100 MB</small><input aria-label="参考视频" type="file" accept="video/mp4,video/quicktime,.mov" disabled={busy} onChange={e=>{const f=e.target.files?.[0];if(f){if(!/\.(mp4|mov)$/i.test(f.name)||f.size>100*1024*1024){setError('请选择不超过 100 MB 的 MP4 / MOV');return;}setReference(f);submitKey.current='';setError('');}e.target.value='';}}/></label>}</div><div className="card-foot"><span className="tiny-dot"/>提取镜头灵感，重新设计表达</div></section>
- <section className="input-card"><div className="card-heading"><span className="step-icon"><ImagePlus size={21}/></span><div><h2>上传模特 / 商品</h2><p>让创意围绕你的产品展开</p></div><span className="step-number">02</span></div><div className="card-content asset-content"><div className="asset-pickers">{(['model','product'] as const).map(kind=><label className="asset-picker" key={kind}><Plus size={25}/><strong>{kind==='model'?'模特素材':'商品素材'}</strong><small>{kind==='model'?'人物 / 穿搭':'外观 / 细节'}</small><input type="file" aria-label={kind==='model'?'模特图片':'商品图片'} accept="image/jpeg,image/png,image/webp" multiple disabled={busy} onChange={e=>{addImages(e.target.files,kind);e.target.value='';}}/></label>)}</div>{models.length+products.length>0?<div className="asset-thumbnails">{[...models.map((f,i)=>({f,i,kind:'model'})),...products.map((f,i)=>({f,i,kind:'product'}))].map(({f,i,kind})=><div key={kind+i}><FilePreview file={f}/><button disabled={busy} aria-label={`移除${f.name}`} onClick={()=>kind==='model'?setModels(v=>v.filter((_,x)=>x!==i)):setProducts(v=>v.filter((_,x)=>x!==i))}><X size={12}/></button><span>{kind==='model'?'模特':'商品'}</span></div>)}</div>:<p className="asset-hint">可选上传，多角度素材有助于表达产品细节。</p>}</div><div className="card-foot"><span className="tiny-dot"/>JPG / PNG / WebP · 合计最多 9 张</div></section>
- <section className="input-card requirements"><div className="card-heading"><span className="step-icon"><FileText size={21}/></span><div><h2>输入创作要求</h2><p>告诉导演，你想表达什么</p></div><span className="step-number">03</span></div><div className="card-content"><textarea aria-label="创作要求" disabled={busy} value={requirement} maxLength={5000} onChange={e=>{setRequirement(e.target.value);submitKey.current='';}}/><span className="text-count">{requirement.length} / 5000</span><div className="prompt-chips">{['自然导购感','突出产品细节','避免机械复刻'].map(t=><button key={t} disabled={busy||requirement.length+t.length+1>5000} onClick={()=>setRequirement(v=>v+'\n'+t)}><Plus size={11}/>{t}</button>)}</div></div></section></div>
- <section className="input-card"><div className="card-content"><h2>生成设置</h2><p>Provider: Auto · Model: Auto</p><p>{currentMode==='director'||currentMode==='agent'?'Director / Agent 模式仅生成导演方案':'Full 模式将在提交时按服务端配置解析 Provider、Model、时长与分辨率'}</p><p>选择要生成的视频（1–3 条）</p>{['V1','V2','V3'].map(id=><label key={id} style={{marginRight:20}}><input type="checkbox" checked={selected.includes(id)} disabled={busy} onChange={e=>{setSelected(v=>e.target.checked?[...v,id].sort():v.filter(x=>x!==id));submitKey.current='';}}/>{id}</label>)}<p>{(currentMode==='director'||currentMode==='agent')?'当前只输出三套导演方案，不生成视频。':`将生成 ${selected.length} 条视频；Full 模式按实际提交数量产生费用。`}</p><label>成片首帧图（Full / Wan 必填；图片必须已包含目标模特与商品）<input aria-label="成片首帧图" type="file" accept="image/jpeg,image/png,image/webp" disabled={busy} onChange={e=>{const f=e.target.files?.[0];if(f&&(!['image/jpeg','image/png','image/webp'].includes(f.type)||f.size>10*1024*1024)){setError('首帧图需为 JPG/PNG/WebP，最多 10 MB');return;}setFirstFrame(f||null);submitKey.current='';}}/></label>{firstFrame&&<div className="first-frame-preview"><FilePreview file={firstFrame}/><p>{firstFrame.name} · 将补边为 9:16，保留整张图片</p></div>}{currentMode==='full'&&!firstFrame&&<p>Wan 高保真模式不会从参考视频自动抽取首帧；请上传已包含目标模特、正确商品、场景与构图的 9:16 图片。</p>}{currentMode==='full'&&<p>参考视频用于动作与镜头分析；Wan 当前接收成片首帧图 + 生成方案，输出本地 MP4。</p>}</div></section>
- <div className="generate-row"><div className="generation-info"><span className="mini-stack"><Layers3 size={21}/></span><div><strong>一次创作，三种可能</strong><span>保留镜头精髓，让动作、运镜和表达各有不同</span></div></div><button className="generate-button" disabled={busy} onClick={start}>{busy?<LoaderCircle size={21} className="spin"/>:<Sparkles size={21}/>} {manualVerification?'请人工确认，禁止重复提交':submitting?'正在上传素材…':busy?(isPlanOnly?'导演正在创作…':'正在调用视频 API…'):'开始生成'} {!busy&&<ArrowRight size={18}/>}</button></div>
- {error&&<div role="alert" className="error-banner"><AlertCircle size={17}/>{error}</div>}
- <section className="agent-panel"><div className="section-heading"><div className="section-title"><span className="agent-symbol"><Sparkles size={21}/></span><div><h2>{task?.status==='COMPLETED'?'创作流程已完成':task?.status==='FAILED'?'任务需要处理':busy?'Agent 工作中…':'你的 AI 导演，已准备就绪'}</h2><p>{task?'每一步进度均来自后端任务状态':'从参考分析到导演方案，让创意有迹可循'}</p></div></div><span className={`status-pill ${busy?'working':''}`}><span/>{busy?'正在处理':task?.status==='COMPLETED'?'已完成':task?.status==='FAILED'?'任务失败':'等待素材'}</span></div><div className="steps">{steps.map((name,i)=><div className={`flow-step ${phase>i?'done':''} ${phase===i&&busy?'current':''}`} key={name}><span className="step-circle">{phase>i?<Check size={18}/>:phase===i&&busy?<LoaderCircle size={18} className="spin"/>:String(i+1).padStart(2,'0')}</span><div><strong>{name}</strong><small>{phase>i?'已完成':phase===i&&busy?'进行中':'等待中'}</small></div>{i<steps.length-1&&<span className="connector"/>}</div>)}</div><div className="agent-log" aria-live="polite">{task?task.logs.slice(-3).map((log,i)=><div key={log.time+i}><time>{new Date(log.time).toLocaleTimeString('zh-CN',{hour12:false})}</time><span className="log-dot"/><span>{log.message}</span></div>):<div><span className="terminal-prompt">›</span><span>添加参考视频和创作要求，开始你的第一条产品故事。</span></div>}{pollError&&<p className="warning">{pollError}</p>}{task?.error&&<p className="warning">{task.error}</p>}</div>{task?.metadata&&<div className="artifacts"><span>{task.metadata.width} × {task.metadata.height} · {task.metadata.duration.toFixed(1)}s · {task.metadata.fps.toFixed(1)} fps</span><a href={localMedia(task,'reference/contact-sheet.jpg')} target="_blank" rel="noreferrer"><ScanLine size={13}/>查看参考帧联系表（{task.metadata.frameCount} 帧）</a>{task.plan&&<button onClick={()=>setShowPlan(v=>!v)}><SlidersHorizontal size={13}/>{showPlan?'收起':'查看'}导演方案</button>}{task.plan&&<a href={localMedia(task,'exports/creative-package.zip')+'?download=1'}><ArrowDownToLine size={13}/>导出创作包</a>}</div>}</section>
- {showPlan&&task?.plan&&<section className="plan-panel"><h2>Shot DNA</h2><div className="dna"><p><b>KEEP · 保留</b>{task.plan.shot_dna.keep.join(' / ')}</p><p><b>MUTATE · 变化</b>{task.plan.shot_dna.mutate.join(' / ')}</p></div>{task.plan.variants.map(v=><details key={v.id}><summary>{v.id} · {v.name}</summary><p>{v.creative_direction}</p>{v.product_showcase.map((s,i)=><p key={i}>{typeof s==='string'?s:`商品展示：${s.feature} · ${s.action} · 镜头关注 ${s.camera_focus}`}</p>)}<p>{v.seedance_prompt}</p></details>)}<a href={localMedia(task,'generation-plan.json')+'?download=1'}>下载 generation-plan.json <ArrowDownToLine size={13}/></a></section>}
- <section className="results-section" ref={resultRef}><div className="section-heading"><div className="section-title"><Layers3 size={19}/><h2>{currentMode==='director'||currentMode==='agent'?'导演方案':'创意结果'} <span className="result-counter">{completed} / {currentMode==='director'||currentMode==='agent'?3:task?.selectedVariants?.length||selected.length}</span></h2></div><span className="result-note">同一个产品，三种结构表达</span></div>{task?.finalRecommendation&&<div className="recommendation-banner" style={{margin:'1rem 0',padding:'1rem 1.25rem',background:'linear-gradient(135deg, rgba(234, 179, 8, 0.12), rgba(249, 115, 22, 0.08))',border:'1px solid rgba(234, 179, 8, 0.4)',borderRadius:'12px',boxShadow:'0 4px 16px rgba(0,0,0,0.2)'}}><div style={{display:'flex',alignItems:'center',justifyContent:'space-between',flexWrap:'wrap',gap:'0.5rem'}}><strong style={{fontSize:'1.05rem',color:'#fef08a',display:'flex',alignItems:'center',gap:'0.5rem'}}>⭐ AI 推荐首选：{task.finalRecommendation.recommended_variant}</strong><span style={{fontSize:'0.85rem',color:'#facc15',background:'rgba(234, 179, 8, 0.25)',padding:'3px 10px',borderRadius:'999px',fontWeight:700}}>综合评分 {task.finalRecommendation.score} / 100</span></div><p style={{margin:'0.4rem 0 0',fontSize:'0.875rem',color:'#cbd5e1',lineHeight:1.5}}>{task.finalRecommendation.rationale}</p></div>}{<><div className="director-grid">{task?.plan?.variants.map((variant,i)=><article className="director-card" key={variant.id}><header><span>{variant.id}</span><h3>{variant.name}</h3>{task?.finalRecommendation?.recommended_variant===variant.id&&<span style={{marginLeft:'auto',fontSize:'0.75rem',color:'#facc15',background:'rgba(234, 179, 8, 0.2)',border:'1px solid rgba(234, 179, 8, 0.4)',padding:'2px 8px',borderRadius:'4px',fontWeight:600}}>⭐ 推荐首选</span>}</header><p className="direction">{variant.creative_direction}</p><dl><dt>Camera</dt><dd>{variant.structure.camera_height} · {variant.structure.camera_trajectory} · {variant.structure.framing}</dd><dt>Subject performance</dt><dd>{Object.values(variant.performance).slice(0,5).join(' / ')}</dd><dt>Product showcase</dt><dd>{variant.product_showcase.map(x=>`${x.feature}: ${x.action} (${x.camera_focus})`).join(' / ')}</dd></dl><div className="prompt-box"><strong>Seedance Prompt</strong><p>{variant.seedance_prompt}</p></div><div className="prompt-box negative"><strong>Negative Prompt</strong><p>{variant.negative_prompt}</p></div><footer><button onClick={()=>navigator.clipboard.writeText(variant.seedance_prompt)}><Copy size={13}/>复制 Prompt</button><button onClick={()=>navigator.clipboard.writeText(variant.negative_prompt)}><Copy size={13}/>复制 Negative</button>{task&&<a href={localMedia(task,`exports/V${i+1}-prompt.txt`)+'?download=1'}><ArrowDownToLine size={13}/>下载</a>}</footer></article>)}</div>{currentMode!=='director'&&<div className="result-grid">{names.map((name,i)=>{const result=task?.results.find(r=>r.id===`V${i+1}`);return <article className={`result-card result-${i}`} key={name}><div className="result-visual">{result?.url?<video controls preload="metadata" src={result.url}/>:<div className="empty-visual"><div className="frame-corner tl"/><div className="frame-corner tr"/><div className="frame-corner bl"/><div className="frame-corner br"/><span className="visual-orbit">{result?.status==='generating'?<LoaderCircle size={30} className="spin"/>:<Clapperboard size={29}/>}</span><span>{result?.status==='generating'?'视频正在生成':result?.status==='failed'?'生成失败':currentMode==='mock'?'PIPELINE PREVIEW':task?.selectedVariants&&!task.selectedVariants.includes(`V${i+1}` as 'V1'|'V2'|'V3')?'未选择':'等待视频生成'}</span><small>{currentMode==='mock'?'DEMO ONLY':'VERSION 0'+(i+1)}</small></div>}<span className="version-tag">V{i+1}</span>{currentMode==='mock'&&<span className="mock-tag">DEMO ONLY · PIPELINE PREVIEW</span>}</div><div className="result-body"><div><h3>{result?.name||name}</h3><span className="result-state">{result?.url&&result?.status==='failed'?'已下载（质检未通过）':result?.status==='completed'?(currentMode==='mock'?'流程预览完成':'已完成'):result?.status==='generating'?'生成中':result?.status==='failed'?'生成失败':'待生成'}</span></div><p>{currentMode==='mock'?'仅验证软件流程，不代表 AI 生成效果。':result?.error||subtitles[i]}</p>{result?.qualityScore!==undefined&&<div style={{margin:'0.5rem 0',padding:'4px 8px',background:'rgba(56, 189, 248, 0.1)',border:'1px solid rgba(56, 189, 248, 0.25)',borderRadius:'6px',fontSize:'0.75rem',color:'#38bdf8',display:'flex',alignItems:'center',justifyContent:'space-between'}}><span>质量审核: <strong>{result.qualityScore}分</strong></span>{task?.finalRecommendation?.recommended_variant===`V${i+1}`&&<span style={{color:'#facc15',fontWeight:600}}>⭐ 推荐首选</span>}</div>}{result?.qualityFeedback?.length&&<p className="quality-feedback">质检：{result.qualityFeedback.join('；')}</p>}{task?.generationTasks?.filter(job=>job.variantId===`V${i+1}`).at(-1)?.attempt&&<p className="quality-feedback">已执行一次靶向优化重试。</p>}<footer><div>{tags[i].map(t=><span key={t}>{t}</span>)}</div>{result?.url&&<a aria-label={`下载 V${i+1}`} href={result.url.startsWith('/')?result.url+'?download=1':result.url} download target={result.url.startsWith('/')?undefined:'_blank'} rel="noreferrer"><ArrowDownToLine size={15}/>下载</a>}</footer></div></article>;})}</div>}</>}</section>
- <div className="bottom-note"><Clock3 size={13}/><span className="health">v1.3 · Customer Demo Hardening · 当前 {currentMode.toUpperCase()} · DeepSeek: {config.deepseekConfigured?'Configured':'Missing'} · Seedance: {config.seedanceConfigured?'Configured':'Missing'}</span><span>DIRECTED BY AI. INSPIRED BY YOU.</span></div>
- </main></div>;
+import {
+  Film,
+  ImagePlus,
+  Play,
+  Check,
+  LoaderCircle,
+  AlertCircle,
+  X,
+  ExternalLink,
+  Hourglass,
+  Maximize2,
+  Volume2,
+  Bookmark,
+} from 'lucide-react';
+import { LayoutShell } from '@/components/app-shell/layout-shell';
+import type { Task, ProviderPreference } from '@/packages/shared/types';
+
+const defaultRequirement = '参考视频的氛围和运镜，突出商品的质感，人物动作自然，5 秒左右，适合社媒投放。';
+
+interface Config {
+  appMode: 'mock' | 'agent' | 'director' | 'full';
+  deepseekConfigured: boolean;
+  wanConfigured?: boolean;
+  minimaxConfigured?: boolean;
+  seedanceConfigured: boolean;
+  deepseekModel: string;
+  wanModel?: string;
+  minimaxModel?: string;
+}
+
+interface Trace {
+  currentAgent?: string;
+  provider?: string;
+  model?: string;
+  status?: string;
+  retryCount?: number;
+  producerDecision?: { duration: number; resolution: string; model: string; provider: string };
+  qualityReports?: Record<string, Array<{ attempt: number; overall_score: number; passed: boolean; issue_count: number; reference_similarity_score?: number }>>;
+  piEvents?: Array<{ toolName?: string; isError?: boolean; timestamp?: string }>;
+}
+
+function FilePreviewThumb({ file, isVideo }: { file: File; isVideo?: boolean }) {
+  const [url, setUrl] = useState('');
+  useEffect(() => {
+    const u = URL.createObjectURL(file);
+    setUrl(u);
+    return () => URL.revokeObjectURL(u);
+  }, [file]);
+
+  if (!url) return <div className="w-full h-full bg-slate-900 animate-pulse" />;
+  return isVideo ? (
+    <video src={url} className="w-full h-full object-cover" preload="metadata" />
+  ) : (
+    <img src={url} alt={file.name} className="w-full h-full object-cover" />
+  );
+}
+
+export default function WorkbenchPage() {
+  const [reference, setReference] = useState<File | null>(null);
+  const [modelFile, setModelFile] = useState<File | null>(null);
+  const [productFile, setProductFile] = useState<File | null>(null);
+  const [firstFrame, setFirstFrame] = useState<File | null>(null);
+
+  const [taskName, setTaskName] = useState('时尚连衣裙 · 街拍氛围');
+  const [duration, setDuration] = useState('5');
+  const [resolution, setResolution] = useState('1280 x 720 (720p)');
+  const [providerPreference, setProviderPreference] = useState<ProviderPreference>('wan');
+  const [requirement, setRequirement] = useState(defaultRequirement);
+  const [activeTags, setActiveTags] = useState<string[]>(['自然真实']);
+
+  const [task, setTask] = useState<Task | null>(null);
+  const [trace, setTrace] = useState<Trace | null>(null);
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState('');
+  const [config, setConfig] = useState<Config>({
+    appMode: 'full',
+    deepseekConfigured: false,
+    wanConfigured: false,
+    minimaxConfigured: false,
+    seedanceConfigured: false,
+    deepseekModel: 'deepseek-flash',
+  });
+
+  const submitKey = useRef('');
+  const taskId = task?.id;
+  const taskStatus = task?.status;
+  const busy = submitting || (!!task && !['COMPLETED', 'FAILED'].includes(task.status));
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const [confRes, listRes] = await Promise.all([fetch('/api/config'), fetch('/api/tasks')]);
+        if (confRes.ok && !cancelled) setConfig(await confRes.json());
+        const listData = listRes.ok ? await listRes.json() : { tasks: [] };
+
+        const params = new URLSearchParams(window.location.search);
+        const fromUrl = params.get('task');
+        const fromStorage = localStorage.getItem('director-task');
+        const targetId = fromUrl || fromStorage || listData.latest;
+
+        if (targetId) {
+          const r = await fetch(`/api/tasks/${targetId}`);
+          if (r.ok && !cancelled) {
+            const d = await r.json();
+            setTask(d);
+            localStorage.setItem('director-task', d.id);
+          }
+        }
+      } catch {}
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!taskId) return;
+    let cancelled = false;
+    const load = async () => {
+      try {
+        const r = await fetch(`/api/tasks/${taskId}/pi-trace`, { cache: 'no-store' });
+        if (r.ok && !cancelled) setTrace(await r.json());
+      } catch {}
+    };
+    void load();
+    const timer = setInterval(load, 1500);
+    return () => {
+      cancelled = true;
+      clearInterval(timer);
+    };
+  }, [taskId]);
+
+  useEffect(() => {
+    if (!taskId || !taskStatus || ['COMPLETED', 'FAILED'].includes(taskStatus)) return;
+    let cancelled = false;
+    const timer = setInterval(async () => {
+      try {
+        const r = await fetch(`/api/tasks/${taskId}`);
+        if (r.ok && !cancelled) {
+          const data = await r.json();
+          setTask(data);
+        }
+      } catch {}
+    }, 1200);
+    return () => {
+      cancelled = true;
+      clearInterval(timer);
+    };
+  }, [taskId, taskStatus]);
+
+  const toggleTag = (tag: string) => {
+    if (activeTags.includes(tag)) {
+      setActiveTags(activeTags.filter((t) => t !== tag));
+    } else {
+      setActiveTags([...activeTags, tag]);
+    }
+  };
+
+  const handleStart = async () => {
+    setError('');
+    if (!reference) {
+      setError('请先上传参考视频');
+      return;
+    }
+    if (!modelFile || !productFile) {
+      setError('请上传模特素材和商品素材');
+      return;
+    }
+    if (providerPreference === 'wan' && !firstFrame) {
+      setError('Wan 高保真模式必须上传已包含目标模特与商品的成片首帧图');
+      return;
+    }
+    if (!requirement.trim()) {
+      setError('请输入创作要求');
+      return;
+    }
+
+    setSubmitting(true);
+    try {
+      if (!submitKey.current) submitKey.current = crypto.randomUUID();
+      const form = new FormData();
+      form.set('referenceVideo', reference);
+      form.set('requirement', requirement);
+      form.set('selectedVariants', JSON.stringify(['V1']));
+      form.set('providerPreference', providerPreference);
+      form.append('modelImages', modelFile);
+      form.append('productImages', productFile);
+      if (firstFrame) form.set('firstFrameImage', firstFrame);
+
+      const r = await fetch('/api/tasks', {
+        method: 'POST',
+        headers: { 'Idempotency-Key': submitKey.current },
+        body: form,
+      });
+      const data = await r.json();
+      if (!r.ok) throw new Error(data.error);
+
+      submitKey.current = '';
+      setTask(data);
+      localStorage.setItem('director-task', data.id);
+      window.history.replaceState(null, '', `?task=${encodeURIComponent(data.id)}`);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : '上传提交失败');
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const isDoneStep1 = Boolean(task?.plan);
+  const isDoneStep2 = Boolean(task?.plan?.motion_dna || (isDoneStep1 && task?.status !== 'ANALYZING'));
+  const isDoneStep3 = Boolean(trace?.producerDecision || ['GENERATING', 'REVIEWING', 'COMPLETED'].includes(task?.status || ''));
+  const isDoneStep4 = Boolean(task?.results?.some((r) => r.status === 'completed') || ['REVIEWING', 'COMPLETED'].includes(task?.status || ''));
+  const isDoneStep5 = Boolean(trace?.qualityReports?.V1?.length);
+  const isDoneStep6 = task?.status === 'COMPLETED';
+
+  const v1Result = task?.results?.find((r) => r.id === 'V1');
+  const qcReport = trace?.qualityReports?.V1?.[0];
+
+  return (
+    <LayoutShell>
+      <div className="page-header-row">
+        <div className="page-title-group">
+          <h1>创作工作台</h1>
+          <p>上传素材，AI 将为你分析参考视频，生成专业级的商品视频</p>
+        </div>
+        <div className="page-actions-group">
+          <Link href="/connections" className="btn-secondary">
+            <Bookmark className="w-4 h-4" />
+            <span>使用指南</span>
+          </Link>
+          <button
+            className="btn-primary"
+            disabled={busy}
+            onClick={handleStart}
+          >
+            {busy ? (
+              <LoaderCircle className="w-4 h-4 animate-spin" />
+            ) : (
+              <Play className="w-4 h-4 fill-white" />
+            )}
+            <span>{busy ? '正在生成中…' : '开始生成'}</span>
+          </button>
+        </div>
+      </div>
+
+      {error && (
+        <div className="error-banner mb-4" role="alert">
+          <AlertCircle className="w-4 h-4 text-red-600 flex-shrink-0" />
+          <span>{error}</span>
+        </div>
+      )}
+
+      <div className="workbench-grid">
+        {/* Column 1: 项目素材 */}
+        <section className="panel-card">
+          <div className="panel-header">
+            <h2 className="panel-title">
+              <span>项目素材</span>
+              <span className="text-slate-400 font-normal cursor-help">ⓘ</span>
+            </h2>
+          </div>
+
+          <div className="asset-cards-col">
+            {/* Slot 1: 参考视频 */}
+            <div className={`asset-card-slot ${reference ? 'has-file' : 'empty'}`}>
+              <div className="asset-thumb-box">
+                {reference ? (
+                  <>
+                    <FilePreviewThumb file={reference} isVideo />
+                    <span className="asset-thumb-video-badge">00:12</span>
+                  </>
+                ) : (
+                  <Film className="w-6 h-6 text-slate-400" />
+                )}
+              </div>
+              <div className="asset-info-col">
+                <span className="asset-slot-label">参考视频</span>
+                {reference ? (
+                  <>
+                    <span className="asset-slot-filename">{reference.name}</span>
+                    <span className="asset-slot-meta">{(reference.size / 1024 / 1024).toFixed(1)} MB</span>
+                    <span className="asset-slot-status">
+                      <Check className="w-3 h-3" /> 已选择
+                    </span>
+                  </>
+                ) : (
+                  <label className="cursor-pointer">
+                    <span className="text-xs text-blue-600 font-medium">+ 点击上传 MP4</span>
+                    <input
+                      type="file"
+                      accept="video/mp4,video/quicktime,.mov"
+                      disabled={busy}
+                      onChange={(e) => {
+                        const f = e.target.files?.[0];
+                        if (f) setReference(f);
+                        e.target.value = '';
+                      }}
+                    />
+                  </label>
+                )}
+              </div>
+              {reference && (
+                <button
+                  disabled={busy}
+                  className="asset-remove-btn"
+                  onClick={() => setReference(null)}
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              )}
+            </div>
+
+            {/* Slot 2: 模特素材 */}
+            <div className={`asset-card-slot ${modelFile ? 'has-file' : 'empty'}`}>
+              <div className="asset-thumb-box">
+                {modelFile ? (
+                  <FilePreviewThumb file={modelFile} />
+                ) : (
+                  <ImagePlus className="w-6 h-6 text-slate-400" />
+                )}
+              </div>
+              <div className="asset-info-col">
+                <span className="asset-slot-label">模特素材</span>
+                {modelFile ? (
+                  <>
+                    <span className="asset-slot-filename">{modelFile.name}</span>
+                    <span className="asset-slot-meta">{(modelFile.size / 1024 / 1024).toFixed(1)} MB</span>
+                    <span className="asset-slot-status">
+                      <Check className="w-3 h-3" /> 已选择
+                    </span>
+                  </>
+                ) : (
+                  <label className="cursor-pointer">
+                    <span className="text-xs text-blue-600 font-medium">+ 上传模特正面照</span>
+                    <input
+                      type="file"
+                      accept="image/jpeg,image/png,image/webp"
+                      disabled={busy}
+                      onChange={(e) => {
+                        const f = e.target.files?.[0];
+                        if (f) setModelFile(f);
+                        e.target.value = '';
+                      }}
+                    />
+                  </label>
+                )}
+              </div>
+              {modelFile && (
+                <button
+                  disabled={busy}
+                  className="asset-remove-btn"
+                  onClick={() => setModelFile(null)}
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              )}
+            </div>
+
+            {/* Slot 3: 商品素材 */}
+            <div className={`asset-card-slot ${productFile ? 'has-file' : 'empty'}`}>
+              <div className="asset-thumb-box">
+                {productFile ? (
+                  <FilePreviewThumb file={productFile} />
+                ) : (
+                  <ImagePlus className="w-6 h-6 text-slate-400" />
+                )}
+              </div>
+              <div className="asset-info-col">
+                <span className="asset-slot-label">商品素材</span>
+                {productFile ? (
+                  <>
+                    <span className="asset-slot-filename">{productFile.name}</span>
+                    <span className="asset-slot-meta">{(productFile.size / 1024 / 1024).toFixed(1)} MB</span>
+                    <span className="asset-slot-status">
+                      <Check className="w-3 h-3" /> 已选择
+                    </span>
+                  </>
+                ) : (
+                  <label className="cursor-pointer">
+                    <span className="text-xs text-blue-600 font-medium">+ 上传白底商品图</span>
+                    <input
+                      type="file"
+                      accept="image/jpeg,image/png,image/webp"
+                      disabled={busy}
+                      onChange={(e) => {
+                        const f = e.target.files?.[0];
+                        if (f) setProductFile(f);
+                        e.target.value = '';
+                      }}
+                    />
+                  </label>
+                )}
+              </div>
+              {productFile && (
+                <button
+                  disabled={busy}
+                  className="asset-remove-btn"
+                  onClick={() => setProductFile(null)}
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              )}
+            </div>
+
+            {/* Slot 4: 成片首帧图 (Wan 必填) */}
+            <div className={`asset-card-slot ${firstFrame ? 'has-file' : 'empty'}`}>
+              <div className="asset-thumb-box">
+                {firstFrame ? (
+                  <FilePreviewThumb file={firstFrame} />
+                ) : (
+                  <ImagePlus className="w-6 h-6 text-slate-400" />
+                )}
+              </div>
+              <div className="asset-info-col">
+                <span className="asset-slot-label">
+                  <span>成片首帧图</span>
+                  <span className="asset-badge-required">Wan 必填</span>
+                </span>
+                {firstFrame ? (
+                  <>
+                    <span className="asset-slot-filename">{firstFrame.name}</span>
+                    <span className="asset-slot-meta">{(firstFrame.size / 1024 / 1024).toFixed(1)} MB</span>
+                    <span className="asset-slot-status">
+                      <Check className="w-3 h-3" /> 已准备 (9:16)
+                    </span>
+                  </>
+                ) : (
+                  <label className="cursor-pointer">
+                    <span className="text-xs text-blue-600 font-medium">+ 目标模特+商品构图图</span>
+                    <input
+                      type="file"
+                      accept="image/jpeg,image/png,image/webp"
+                      disabled={busy}
+                      onChange={(e) => {
+                        const f = e.target.files?.[0];
+                        if (f) setFirstFrame(f);
+                        e.target.value = '';
+                      }}
+                    />
+                  </label>
+                )}
+              </div>
+              {firstFrame && (
+                <button
+                  disabled={busy}
+                  className="asset-remove-btn"
+                  onClick={() => setFirstFrame(null)}
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              )}
+            </div>
+          </div>
+
+          <div className="prompt-field-group">
+            <div className="prompt-field-header">
+              <span>创作要求 (可选)</span>
+              <span className="prompt-counter">{requirement.length} / 500</span>
+            </div>
+            <textarea
+              className="prompt-textarea"
+              value={requirement}
+              maxLength={500}
+              disabled={busy}
+              onChange={(e) => setRequirement(e.target.value)}
+            />
+            <div className="style-tags-row">
+              {['自然真实', '时尚街拍', '突出商品', '适合投放'].map((tag) => (
+                <button
+                  key={tag}
+                  type="button"
+                  className={`style-tag-pill ${activeTags.includes(tag) ? 'active' : ''}`}
+                  onClick={() => toggleTag(tag)}
+                  disabled={busy}
+                >
+                  {tag}
+                </button>
+              ))}
+              <button
+                type="button"
+                className="style-tag-pill"
+                onClick={() => setRequirement((v) => v + '\n特写腰部剪裁细节')}
+                disabled={busy}
+              >
+                + 添加标签
+              </button>
+            </div>
+          </div>
+        </section>
+
+        {/* Column 2: Pi Agent 工作流 */}
+        <section className="panel-card">
+          <div className="panel-header">
+            <h2 className="panel-title">
+              <span>Pi Agent 工作流</span>
+            </h2>
+            <div className="flex items-center gap-1.5 text-xs text-emerald-600 font-medium bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-200">
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+              <span>{busy ? '实时运行中' : task ? '已完成' : '待运行'}</span>
+            </div>
+          </div>
+
+          <div className="stepper-container">
+            <div className={`step-node-item ${isDoneStep1 ? 'is-done' : busy ? 'is-active' : ''}`}>
+              <div className="step-indicator-circle">
+                {isDoneStep1 ? <Check className="w-3.5 h-3.5 text-white" /> : '1'}
+              </div>
+              <div className="step-node-body">
+                <div className="step-title-line">
+                  <span className="step-name-text">1. Director Agent · 参考视频分析</span>
+                  <span className="step-time-badge">{isDoneStep1 ? '18.4s' : '--'}</span>
+                </div>
+                <p className="step-desc-text">使用 DeepSeek 分析镜头、动作与节奏</p>
+                {isDoneStep1 && (
+                  <div className="step-subcard-detail">
+                    <div className="subcard-stat-col">
+                      <span className="subcard-stat-label">模型</span>
+                      <span className="subcard-stat-val font-mono">{config.deepseekModel}</span>
+                    </div>
+                    <div className="subcard-stat-col">
+                      <span className="subcard-stat-label">分析帧数</span>
+                      <span className="subcard-stat-val font-mono">24</span>
+                    </div>
+                    <div className="subcard-stat-col">
+                      <span className="subcard-stat-label">识别动作</span>
+                      <span className="subcard-stat-val font-mono">12</span>
+                    </div>
+                    <div className="subcard-stat-col">
+                      <span className="subcard-stat-label">状态</span>
+                      <span className="subcard-stat-val text-emerald-600">PASS</span>
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            <div className={`step-node-item ${isDoneStep2 ? 'is-done' : isDoneStep1 && busy ? 'is-active' : ''}`}>
+              <div className="step-indicator-circle">
+                {isDoneStep2 ? <Check className="w-3.5 h-3.5 text-white" /> : '2'}
+              </div>
+              <div className="step-node-body">
+                <div className="step-title-line">
+                  <span className="step-name-text">2. Motion DNA · 动作与运镜提取</span>
+                  <span className="step-time-badge">{isDoneStep2 ? '12.6s' : '--'}</span>
+                </div>
+                <p className="step-desc-text">建立 Motion DNA 和 Shot DNA 结构化序列</p>
+              </div>
+            </div>
+
+            <div className={`step-node-item ${isDoneStep3 ? 'is-done' : isDoneStep2 && busy ? 'is-active' : ''}`}>
+              <div className="step-indicator-circle">
+                {isDoneStep3 ? <Check className="w-3.5 h-3.5 text-white" /> : '3'}
+              </div>
+              <div className="step-node-body">
+                <div className="step-title-line">
+                  <span className="step-name-text">3. Producer Agent · 生成方案</span>
+                  <span className="step-time-badge">{isDoneStep3 ? '8.3s' : '--'}</span>
+                </div>
+                <p className="step-desc-text">选择最佳模型与参数，生成提示词与首帧</p>
+              </div>
+            </div>
+
+            <div className={`step-node-item ${isDoneStep4 ? 'is-done' : isDoneStep3 && busy ? 'is-active' : ''}`}>
+              <div className="step-indicator-circle">
+                {isDoneStep4 ? <Check className="w-3.5 h-3.5 text-white" /> : '4'}
+              </div>
+              <div className="step-node-body">
+                <div className="step-title-line">
+                  <span className="step-name-text">
+                    4. {providerPreference === 'minimax' ? 'MiniMax' : 'Wan'} Generator · {isDoneStep4 ? '已生成视频' : busy ? '正在生成视频' : '待生成'}
+                  </span>
+                  <span className="step-time-badge">{isDoneStep4 ? '42.1s' : busy ? '处理中' : '--'}</span>
+                </div>
+                <p className="step-desc-text">
+                  调用 {providerPreference === 'minimax' ? 'MiniMax-Hailuo-2.3' : 'wanx2.1-i2v-plus'} 生成视频
+                </p>
+                {isDoneStep3 && !isDoneStep4 && busy && (
+                  <div className="step-progress-wrapper">
+                    <div className="progress-track">
+                      <div className="progress-fill" style={{ width: '68%' }} />
+                    </div>
+                    <span className="progress-pct-text">68%</span>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            <div className={`step-node-item ${isDoneStep5 ? 'is-done' : isDoneStep4 && busy ? 'is-active' : ''}`}>
+              <div className="step-indicator-circle">
+                {isDoneStep5 ? <Check className="w-3.5 h-3.5 text-white" /> : '5'}
+              </div>
+              <div className="step-node-body">
+                <div className="step-title-line">
+                  <span className="step-name-text">5. Visual QC · 视频质检</span>
+                  <span className="step-time-badge">{isDoneStep5 ? '完成' : '--'}</span>
+                </div>
+                <p className="step-desc-text">{isDoneStep5 ? '质检通过，已满足商业交付标准' : '抽帧检验动作连贯度、商品一致性'}</p>
+              </div>
+            </div>
+
+            <div className={`step-node-item ${isDoneStep6 ? 'is-done' : ''}`}>
+              <div className="step-indicator-circle">
+                {isDoneStep6 ? <Check className="w-3.5 h-3.5 text-white" /> : '6'}
+              </div>
+              <div className="step-node-body">
+                <div className="step-title-line">
+                  <span className="step-name-text">6. Final · 生成完成</span>
+                  <span className="step-time-badge">{isDoneStep6 ? 'Ready' : '--'}</span>
+                </div>
+                <p className="step-desc-text">输出最终视频与多维质量评估报告</p>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        {/* Column 3: 任务设置 */}
+        <section className="panel-card settings-form-col">
+          <div className="panel-header mb-0">
+            <h2 className="panel-title">
+              <span>任务设置</span>
+            </h2>
+          </div>
+
+          <div className="form-field">
+            <div className="form-label-row">
+              <span>任务名称</span>
+              <span className="text-slate-400 font-mono text-[11px]">{taskName.length} / 50</span>
+            </div>
+            <input
+              type="text"
+              className="form-input-text"
+              value={taskName}
+              maxLength={50}
+              disabled={busy}
+              onChange={(e) => setTaskName(e.target.value)}
+            />
+          </div>
+
+          <div className="form-field">
+            <div className="form-label-row">
+              <span>视频参数</span>
+            </div>
+            <div className="grid grid-cols-2 gap-2" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
+              <select
+                className="form-select"
+                value={duration}
+                disabled={busy}
+                onChange={(e) => setDuration(e.target.value)}
+              >
+                <option value="5">5 秒</option>
+                <option value="6">6 秒 (MiniMax)</option>
+                <option value="8">8 秒</option>
+              </select>
+              <select
+                className="form-select"
+                value={resolution}
+                disabled={busy}
+                onChange={(e) => setResolution(e.target.value)}
+              >
+                <option value="1280 x 720 (720p)">720p</option>
+                <option value="1080 x 1920 (1080p)">1080p</option>
+              </select>
+            </div>
+          </div>
+
+          <div className="form-field">
+            <div className="form-label-row">
+              <span>生成模型</span>
+            </div>
+            <select
+              className="form-select"
+              value={providerPreference}
+              disabled={busy}
+              onChange={(e) => setProviderPreference(e.target.value as ProviderPreference)}
+            >
+              <option value="wan">Wan (DashScope)</option>
+              <option value="minimax">MiniMax</option>
+              <option value="auto">Auto (按已配置路由)</option>
+            </select>
+            <span className="form-hint mt-1">
+              {providerPreference === 'wan'
+                ? 'wanx2.1-i2v-plus · 高质量，适合人物与商品视频生成'
+                : 'MiniMax-Hailuo-2.3 · 擅长运镜流动感与写实人物'}
+            </span>
+          </div>
+
+          <div className="api-status-widget mt-2">
+            <div className="api-status-header">
+              <span className="api-status-title">API 连接状态</span>
+              <Link href="/connections" className="api-status-manage-link">
+                管理 →
+              </Link>
+            </div>
+            <div className="api-status-list">
+              <div className="api-status-row">
+                <div className="api-name-wrap">
+                  <span className={`api-dot ${config.deepseekConfigured ? 'connected' : ''}`} />
+                  <span>DeepSeek</span>
+                </div>
+                <span className={`api-tag-label ${config.deepseekConfigured ? 'connected' : ''}`}>
+                  {config.deepseekConfigured ? '● 已连接' : '○ 未配置'}
+                </span>
+              </div>
+              <div className="api-status-row">
+                <div className="api-name-wrap">
+                  <span className={`api-dot ${config.wanConfigured ? 'connected' : ''}`} />
+                  <span>Wan / DashScope</span>
+                </div>
+                <span className={`api-tag-label ${config.wanConfigured ? 'connected' : ''}`}>
+                  {config.wanConfigured ? '● 已连接' : '○ 未配置'}
+                </span>
+              </div>
+              <div className="api-status-row">
+                <div className="api-name-wrap">
+                  <span className={`api-dot ${config.minimaxConfigured ? 'connected' : ''}`} />
+                  <span>MiniMax</span>
+                </div>
+                <span className={`api-tag-label ${config.minimaxConfigured ? 'connected' : ''}`}>
+                  {config.minimaxConfigured ? '● 已连接' : '○ 未配置'}
+                </span>
+              </div>
+              <div className="api-status-row">
+                <div className="api-name-wrap">
+                  <span className={`api-dot ${config.seedanceConfigured ? 'connected' : ''}`} />
+                  <span>Seedance</span>
+                </div>
+                <span className={`api-tag-label ${config.seedanceConfigured ? 'connected' : ''}`}>
+                  {config.seedanceConfigured ? '● 已连接' : '○ 未配置'}
+                </span>
+              </div>
+            </div>
+          </div>
+        </section>
+      </div>
+
+      <section className="result-section-card">
+        <div className="panel-header">
+          <h2 className="panel-title">
+            <span>生成结果</span>
+          </h2>
+          {taskId && (
+            <Link href={`/projects/${taskId}`} className="btn-secondary">
+              <span>查看详细报告</span>
+              <ExternalLink className="w-3.5 h-3.5" />
+            </Link>
+          )}
+        </div>
+
+        <div className="result-layout-grid">
+          <div className="video-player-container">
+            {v1Result?.url ? (
+              <video src={v1Result.url} controls className="w-full h-full object-cover" />
+            ) : firstFrame ? (
+              <>
+                <FilePreviewThumb file={firstFrame} />
+                <button className="player-big-play-btn" aria-label="播放预览">
+                  <Play className="w-5 h-5 fill-slate-900 ml-0.5" />
+                </button>
+              </>
+            ) : (
+              <div className="flex flex-col items-center justify-center text-slate-500">
+                <Film className="w-10 h-10 mb-2 stroke-[1.5]" />
+                <span className="text-xs">成片预览区</span>
+              </div>
+            )}
+            <div className="player-bottom-bar">
+              <span>0:00 / 0:05</span>
+              <div className="flex items-center gap-2">
+                <Volume2 className="w-3.5 h-3.5" />
+                <Maximize2 className="w-3.5 h-3.5" />
+              </div>
+            </div>
+          </div>
+
+          <div className="quality-meters-group">
+            <span className="text-xs font-semibold text-slate-700">
+              质量评估 (生成完成后自动评估)
+            </span>
+            <div className="qc-submeters-row">
+              <div className="qc-dimension-card">
+                <div className="dim-name-header">Motion</div>
+                <div className="dim-desc-text">动作流畅度</div>
+                <div className="dim-score-num">
+                  {qcReport ? Math.round(qcReport.overall_score * 0.25) : 22} <small>/ 25</small>
+                </div>
+                <div className="dim-meter-track">
+                  <div className="dim-meter-fill" style={{ width: '88%' }} />
+                </div>
+              </div>
+
+              <div className="qc-dimension-card">
+                <div className="dim-name-header">Human</div>
+                <div className="dim-desc-text">人物真实感</div>
+                <div className="dim-score-num">
+                  {qcReport ? Math.round(qcReport.overall_score * 0.24) : 21} <small>/ 25</small>
+                </div>
+                <div className="dim-meter-track">
+                  <div className="dim-meter-fill" style={{ width: '84%' }} />
+                </div>
+              </div>
+
+              <div className="qc-dimension-card">
+                <div className="dim-name-header">Product</div>
+                <div className="dim-desc-text">商品一致性</div>
+                <div className="dim-score-num">
+                  {qcReport ? Math.round(qcReport.overall_score * 0.26) : 23} <small>/ 25</small>
+                </div>
+                <div className="dim-meter-track">
+                  <div className="dim-meter-fill" style={{ width: '92%' }} />
+                </div>
+              </div>
+
+              <div className="qc-dimension-card">
+                <div className="dim-name-header">Commercial</div>
+                <div className="dim-desc-text">商业吸引力</div>
+                <div className="dim-score-num">
+                  {qcReport ? Math.round(qcReport.overall_score * 0.22) : 19} <small>/ 25</small>
+                </div>
+                <div className="dim-meter-track">
+                  <div className="dim-meter-fill warning" style={{ width: '76%' }} />
+                </div>
+              </div>
+            </div>
+
+            <div className="similarity-bar-wrap">
+              <span className="similarity-label">参考相似度</span>
+              <span className="similarity-score-num">
+                {qcReport?.reference_similarity_score ?? 76} / 100
+              </span>
+              <div className="similarity-track">
+                <div
+                  className="similarity-fill"
+                  style={{ width: `${qcReport?.reference_similarity_score ?? 76}%` }}
+                />
+              </div>
+            </div>
+          </div>
+
+          <div className="result-status-card">
+            <div className="status-icon-badge">
+              {task?.status === 'COMPLETED' ? (
+                <Check className="w-5 h-5 text-emerald-600" />
+              ) : (
+                <Hourglass className="w-5 h-5 text-blue-600 animate-spin" />
+              )}
+            </div>
+            <span className="status-main-title">
+              {task?.status === 'COMPLETED'
+                ? '视频生成并质检完成'
+                : busy
+                ? '视频生成中…'
+                : '准备就绪'}
+            </span>
+            <span className="status-sub-desc">
+              {task?.status === 'COMPLETED'
+                ? '质检合格，已保存至本地'
+                : busy
+                ? '生成完成后将自动进行质量评估'
+                : '点击上方开始生成，启动 AI 导演管线'}
+            </span>
+          </div>
+        </div>
+      </section>
+    </LayoutShell>
+  );
 }

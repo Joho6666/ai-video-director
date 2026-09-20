@@ -7,6 +7,7 @@ import type { SchedulerOptions } from '../orchestrator/scheduler';
 import { WorkflowStateManager } from '../orchestrator/state';
 import { hasCurrentQualityReport, needsQualityRecovery } from '../orchestrator/scheduler';
 import { customerErrorMessage } from '../shared/errors';
+import { hydrateEnvironment } from '../server/secrets';
 
 const state = globalThis as typeof globalThis & { directorActive?: Set<string> };
 export const active = state.directorActive ??= new Set();
@@ -24,6 +25,7 @@ export async function getOrCreateProviderTask(
 }
 
 export async function runTask(task: Task): Promise<void> {
+  await hydrateEnvironment();
   const release = await acquireTaskLock(task.id);
   if (!release) return;
   active.add(task.id);

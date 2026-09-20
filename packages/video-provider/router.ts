@@ -13,7 +13,8 @@ export function resolveVideoRoute(mode:string,type='ecommerce',env:Record<string
  if(mode==='mock')return {provider:'mock' as const,model:'demo-only',duration:8,resolution:'640P',aspect_ratio:'9:16' as const};
  if(mode!=='full'||!['fashion','ecommerce'].includes(type))throw new Error('Provider unavailable: unsupported mode or task type');
 
- const targetProvider = env.VIDEO_PROVIDER || ((env.WAN_API_KEY || env.DASHSCOPE_API_KEY) && !env.MINIMAX_API_KEY ? 'wan' : 'minimax');
+ const requested = env.VIDEO_PROVIDER && env.VIDEO_PROVIDER !== 'auto' ? env.VIDEO_PROVIDER : undefined;
+ const targetProvider = requested || ((env.WAN_API_KEY || env.DASHSCOPE_API_KEY) && !env.MINIMAX_API_KEY ? 'wan' : 'minimax');
 
  if(targetProvider === 'wan'){
   const key = env.WAN_API_KEY || env.DASHSCOPE_API_KEY;
