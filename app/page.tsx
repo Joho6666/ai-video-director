@@ -15,6 +15,7 @@ import {
   Maximize2,
   Volume2,
   Bookmark,
+  UploadCloud,
 } from 'lucide-react';
 import { LayoutShell } from '@/components/app-shell/layout-shell';
 import type { Task, ProviderPreference } from '@/packages/shared/types';
@@ -65,6 +66,8 @@ export default function WorkbenchPage() {
   const [productFile, setProductFile] = useState<File | null>(null);
   const [firstFrame, setFirstFrame] = useState<File | null>(null);
 
+  const [dragOverSlot, setDragOverSlot] = useState<string | null>(null);
+
   const [taskName, setTaskName] = useState('时尚连衣裙 · 街拍氛围');
   const [duration, setDuration] = useState('5');
   const [resolution, setResolution] = useState('1280 x 720 (720p)');
@@ -85,11 +88,17 @@ export default function WorkbenchPage() {
     deepseekModel: 'deepseek-flash',
   });
 
+  const refInputRef = useRef<HTMLInputElement>(null);
+  const modelInputRef = useRef<HTMLInputElement>(null);
+  const productInputRef = useRef<HTMLInputElement>(null);
+  const firstFrameInputRef = useRef<HTMLInputElement>(null);
+
   const submitKey = useRef('');
   const taskId = task?.id;
   const taskStatus = task?.status;
   const busy = submitting || (!!task && !['COMPLETED', 'FAILED'].includes(task.status));
 
+  // Initial load
   useEffect(() => {
     let cancelled = false;
     (async () => {
@@ -118,6 +127,7 @@ export default function WorkbenchPage() {
     };
   }, []);
 
+  // Poll trace
   useEffect(() => {
     if (!taskId) return;
     let cancelled = false;
@@ -135,6 +145,7 @@ export default function WorkbenchPage() {
     };
   }, [taskId]);
 
+  // Poll task status
   useEffect(() => {
     if (!taskId || !taskStatus || ['COMPLETED', 'FAILED'].includes(taskStatus)) return;
     let cancelled = false;
@@ -161,18 +172,73 @@ export default function WorkbenchPage() {
     }
   };
 
+  // Drag and Drop handlers
+  const handleDragOver = (e: React.DragEvent, slotKey: string) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (dragOverSlot !== slotKey) {
+      setDragOverSlot(slotKey);
+    }
+  };
+
+  const handleDragLeave = (e: React.DragEvent, slotKey: string) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (dragOverSlot === slotKey) {
+      setDragOverSlot(null);
+    }
+  };
+
+  const handleDrop = (
+    e: React.DragEvent,
+    slotKey: string,
+    kind: 'video' | 'image',
+    onSelect: (f: File) => void
+  ) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setDragOverSlot(null);
+
+    const files = e.dataTransfer.files;
+    if (!files || files.length === 0) return;
+    const file = files[0];
+
+    if (kind === 'video') {
+      if (!/.(mp4|mov)$/i.test(file.name)) {
+        setError('请拖入 MP4 或 MOV 格式的商业参考视频');
+        return;
+      }
+      if (file.size > 100 * 1024 * 1024) {
+        setError('参考视频文件不能超过 100 MB');
+        return;
+      }
+    } else {
+      if (!['image/jpeg', 'image/png', 'image/webp'].includes(file.type)) {
+        setError('图片需为 JPG、PNG 或 WebP 格式');
+        return;
+      }
+      if (file.size > 10 * 1024 * 1024) {
+        setError('单张图片大小不能超过 10 MB');
+        return;
+      }
+    }
+
+    setError('');
+    onSelect(file);
+  };
+
   const handleStart = async () => {
     setError('');
     if (!reference) {
-      setError('请先上传参考视频');
+      setError('请先上传或拖入参考视频');
       return;
     }
     if (!modelFile || !productFile) {
-      setError('请上传模特素材和商品素材');
+      setError('请上传或拖入模特素材和商品素材');
       return;
     }
     if (providerPreference === 'wan' && !firstFrame) {
-      setError('Wan 高保真模式必须上传已包含目标模特与商品的成片首帧图');
+      setError('Wan 高保真模式必须提供已包含目标模特与商品的成片首帧图');
       return;
     }
     if (!requirement.trim()) {
@@ -223,10 +289,11 @@ export default function WorkbenchPage() {
 
   return (
     <LayoutShell>
+      {/* Top Header */}
       <div className="page-header-row">
         <div className="page-title-group">
           <h1>创作工作台</h1>
-          <p>上传素材，AI 将为你分析参考视频，生成专业级的商品视频</p>
+          <p>上传或拖拽素材，AI 将为你分析参考视频，生成专业级的商品视频</p>
         </div>
         <div className="page-actions-group">
           <Link href="/connections" className="btn-secondary">
@@ -255,6 +322,7 @@ export default function WorkbenchPage() {
         </div>
       )}
 
+      {/* 3-Column Main Grid */}
       <div className="workbench-grid">
         {/* Column 1: 项目素材 */}
         <section className="panel-card">
@@ -263,52 +331,74 @@ export default function WorkbenchPage() {
               <span>项目素材</span>
               <span className="text-slate-400 font-normal cursor-help">ⓘ</span>
             </h2>
+            <span className="text-[11px] text-slate-400">支持点击或直接拖拽文件</span>
           </div>
 
           <div className="asset-cards-col">
             {/* Slot 1: 参考视频 */}
-            <div className={`asset-card-slot ${reference ? 'has-file' : 'empty'}`}>
+            <div
+              className={`asset-card-slot ${reference ? 'has-file' : 'empty'} ${
+                dragOverSlot === 'reference' ? 'drag-over' : ''
+              }`}
+              onDragOver={(e) => handleDragOver(e, 'reference')}
+              onDragLeave={(e) => handleDragLeave(e, 'reference')}
+              onDrop={(e) => handleDrop(e, 'reference', 'video', setReference)}
+              onClick={() => {
+                if (!reference && !busy) refInputRef.current?.click();
+              }}
+            >
               <div className="asset-thumb-box">
                 {reference ? (
                   <>
                     <FilePreviewThumb file={reference} isVideo />
                     <span className="asset-thumb-video-badge">00:12</span>
                   </>
+                ) : dragOverSlot === 'reference' ? (
+                  <UploadCloud className="w-6 h-6 text-blue-600 animate-bounce" />
                 ) : (
                   <Film className="w-6 h-6 text-slate-400" />
                 )}
               </div>
               <div className="asset-info-col">
                 <span className="asset-slot-label">参考视频</span>
-                {reference ? (
+                {dragOverSlot === 'reference' ? (
+                  <span className="drag-hint-overlay">释放鼠标以放入视频</span>
+                ) : reference ? (
                   <>
                     <span className="asset-slot-filename">{reference.name}</span>
                     <span className="asset-slot-meta">{(reference.size / 1024 / 1024).toFixed(1)} MB</span>
                     <span className="asset-slot-status">
-                      <Check className="w-3 h-3" /> 已选择
+                      <Check className="w-3 h-3" /> 已选择 (可拖拽替换)
                     </span>
                   </>
                 ) : (
-                  <label className="cursor-pointer">
-                    <span className="text-xs text-blue-600 font-medium">+ 点击上传 MP4</span>
-                    <input
-                      type="file"
-                      accept="video/mp4,video/quicktime,.mov"
-                      disabled={busy}
-                      onChange={(e) => {
-                        const f = e.target.files?.[0];
-                        if (f) setReference(f);
-                        e.target.value = '';
-                      }}
-                    />
-                  </label>
+                  <div>
+                    <span className="text-xs text-blue-600 font-medium">+ 拖拽或点击上传 MP4</span>
+                    <span className="text-[10px] text-slate-400 block mt-0.5">MP4 / MOV · 最大 100MB</span>
+                  </div>
                 )}
+                <input
+                  ref={refInputRef}
+                  type="file"
+                  accept="video/mp4,video/quicktime,.mov"
+                  disabled={busy}
+                  style={{ display: 'none' }}
+                  onChange={(e) => {
+                    const f = e.target.files?.[0];
+                    if (f) setReference(f);
+                    e.target.value = '';
+                  }}
+                />
               </div>
               {reference && (
                 <button
                   disabled={busy}
                   className="asset-remove-btn"
-                  onClick={() => setReference(null)}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setReference(null);
+                  }}
+                  title="移除参考视频"
                 >
                   <X className="w-4 h-4" />
                 </button>
@@ -316,45 +406,66 @@ export default function WorkbenchPage() {
             </div>
 
             {/* Slot 2: 模特素材 */}
-            <div className={`asset-card-slot ${modelFile ? 'has-file' : 'empty'}`}>
+            <div
+              className={`asset-card-slot ${modelFile ? 'has-file' : 'empty'} ${
+                dragOverSlot === 'model' ? 'drag-over' : ''
+              }`}
+              onDragOver={(e) => handleDragOver(e, 'model')}
+              onDragLeave={(e) => handleDragLeave(e, 'model')}
+              onDrop={(e) => handleDrop(e, 'model', 'image', setModelFile)}
+              onClick={() => {
+                if (!modelFile && !busy) modelInputRef.current?.click();
+              }}
+            >
               <div className="asset-thumb-box">
                 {modelFile ? (
                   <FilePreviewThumb file={modelFile} />
+                ) : dragOverSlot === 'model' ? (
+                  <UploadCloud className="w-6 h-6 text-blue-600 animate-bounce" />
                 ) : (
                   <ImagePlus className="w-6 h-6 text-slate-400" />
                 )}
               </div>
               <div className="asset-info-col">
                 <span className="asset-slot-label">模特素材</span>
-                {modelFile ? (
+                {dragOverSlot === 'model' ? (
+                  <span className="drag-hint-overlay">释放鼠标以放入图片</span>
+                ) : modelFile ? (
                   <>
                     <span className="asset-slot-filename">{modelFile.name}</span>
                     <span className="asset-slot-meta">{(modelFile.size / 1024 / 1024).toFixed(1)} MB</span>
                     <span className="asset-slot-status">
-                      <Check className="w-3 h-3" /> 已选择
+                      <Check className="w-3 h-3" /> 已选择 (可拖拽替换)
                     </span>
                   </>
                 ) : (
-                  <label className="cursor-pointer">
-                    <span className="text-xs text-blue-600 font-medium">+ 上传模特正面照</span>
-                    <input
-                      type="file"
-                      accept="image/jpeg,image/png,image/webp"
-                      disabled={busy}
-                      onChange={(e) => {
-                        const f = e.target.files?.[0];
-                        if (f) setModelFile(f);
-                        e.target.value = '';
-                      }}
-                    />
-                  </label>
+                  <div>
+                    <span className="text-xs text-blue-600 font-medium">+ 拖拽或点击上传模特图</span>
+                    <span className="text-[10px] text-slate-400 block mt-0.5">JPG / PNG / WebP · 最大 10MB</span>
+                  </div>
                 )}
+                <input
+                  ref={modelInputRef}
+                  type="file"
+                  accept="image/jpeg,image/png,image/webp"
+                  disabled={busy}
+                  style={{ display: 'none' }}
+                  onChange={(e) => {
+                    const f = e.target.files?.[0];
+                    if (f) setModelFile(f);
+                    e.target.value = '';
+                  }}
+                />
               </div>
               {modelFile && (
                 <button
                   disabled={busy}
                   className="asset-remove-btn"
-                  onClick={() => setModelFile(null)}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setModelFile(null);
+                  }}
+                  title="移除模特素材"
                 >
                   <X className="w-4 h-4" />
                 </button>
@@ -362,45 +473,66 @@ export default function WorkbenchPage() {
             </div>
 
             {/* Slot 3: 商品素材 */}
-            <div className={`asset-card-slot ${productFile ? 'has-file' : 'empty'}`}>
+            <div
+              className={`asset-card-slot ${productFile ? 'has-file' : 'empty'} ${
+                dragOverSlot === 'product' ? 'drag-over' : ''
+              }`}
+              onDragOver={(e) => handleDragOver(e, 'product')}
+              onDragLeave={(e) => handleDragLeave(e, 'product')}
+              onDrop={(e) => handleDrop(e, 'product', 'image', setProductFile)}
+              onClick={() => {
+                if (!productFile && !busy) productInputRef.current?.click();
+              }}
+            >
               <div className="asset-thumb-box">
                 {productFile ? (
                   <FilePreviewThumb file={productFile} />
+                ) : dragOverSlot === 'product' ? (
+                  <UploadCloud className="w-6 h-6 text-blue-600 animate-bounce" />
                 ) : (
                   <ImagePlus className="w-6 h-6 text-slate-400" />
                 )}
               </div>
               <div className="asset-info-col">
                 <span className="asset-slot-label">商品素材</span>
-                {productFile ? (
+                {dragOverSlot === 'product' ? (
+                  <span className="drag-hint-overlay">释放鼠标以放入图片</span>
+                ) : productFile ? (
                   <>
                     <span className="asset-slot-filename">{productFile.name}</span>
                     <span className="asset-slot-meta">{(productFile.size / 1024 / 1024).toFixed(1)} MB</span>
                     <span className="asset-slot-status">
-                      <Check className="w-3 h-3" /> 已选择
+                      <Check className="w-3 h-3" /> 已选择 (可拖拽替换)
                     </span>
                   </>
                 ) : (
-                  <label className="cursor-pointer">
-                    <span className="text-xs text-blue-600 font-medium">+ 上传白底商品图</span>
-                    <input
-                      type="file"
-                      accept="image/jpeg,image/png,image/webp"
-                      disabled={busy}
-                      onChange={(e) => {
-                        const f = e.target.files?.[0];
-                        if (f) setProductFile(f);
-                        e.target.value = '';
-                      }}
-                    />
-                  </label>
+                  <div>
+                    <span className="text-xs text-blue-600 font-medium">+ 拖拽或点击上传白底商品图</span>
+                    <span className="text-[10px] text-slate-400 block mt-0.5">JPG / PNG / WebP · 最大 10MB</span>
+                  </div>
                 )}
+                <input
+                  ref={productInputRef}
+                  type="file"
+                  accept="image/jpeg,image/png,image/webp"
+                  disabled={busy}
+                  style={{ display: 'none' }}
+                  onChange={(e) => {
+                    const f = e.target.files?.[0];
+                    if (f) setProductFile(f);
+                    e.target.value = '';
+                  }}
+                />
               </div>
               {productFile && (
                 <button
                   disabled={busy}
                   className="asset-remove-btn"
-                  onClick={() => setProductFile(null)}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setProductFile(null);
+                  }}
+                  title="移除商品素材"
                 >
                   <X className="w-4 h-4" />
                 </button>
@@ -408,10 +540,22 @@ export default function WorkbenchPage() {
             </div>
 
             {/* Slot 4: 成片首帧图 (Wan 必填) */}
-            <div className={`asset-card-slot ${firstFrame ? 'has-file' : 'empty'}`}>
+            <div
+              className={`asset-card-slot ${firstFrame ? 'has-file' : 'empty'} ${
+                dragOverSlot === 'firstFrame' ? 'drag-over' : ''
+              }`}
+              onDragOver={(e) => handleDragOver(e, 'firstFrame')}
+              onDragLeave={(e) => handleDragLeave(e, 'firstFrame')}
+              onDrop={(e) => handleDrop(e, 'firstFrame', 'image', setFirstFrame)}
+              onClick={() => {
+                if (!firstFrame && !busy) firstFrameInputRef.current?.click();
+              }}
+            >
               <div className="asset-thumb-box">
                 {firstFrame ? (
                   <FilePreviewThumb file={firstFrame} />
+                ) : dragOverSlot === 'firstFrame' ? (
+                  <UploadCloud className="w-6 h-6 text-blue-600 animate-bounce" />
                 ) : (
                   <ImagePlus className="w-6 h-6 text-slate-400" />
                 )}
@@ -421,7 +565,9 @@ export default function WorkbenchPage() {
                   <span>成片首帧图</span>
                   <span className="asset-badge-required">Wan 必填</span>
                 </span>
-                {firstFrame ? (
+                {dragOverSlot === 'firstFrame' ? (
+                  <span className="drag-hint-overlay">释放鼠标以放入图片</span>
+                ) : firstFrame ? (
                   <>
                     <span className="asset-slot-filename">{firstFrame.name}</span>
                     <span className="asset-slot-meta">{(firstFrame.size / 1024 / 1024).toFixed(1)} MB</span>
@@ -430,26 +576,33 @@ export default function WorkbenchPage() {
                     </span>
                   </>
                 ) : (
-                  <label className="cursor-pointer">
-                    <span className="text-xs text-blue-600 font-medium">+ 目标模特+商品构图图</span>
-                    <input
-                      type="file"
-                      accept="image/jpeg,image/png,image/webp"
-                      disabled={busy}
-                      onChange={(e) => {
-                        const f = e.target.files?.[0];
-                        if (f) setFirstFrame(f);
-                        e.target.value = '';
-                      }}
-                    />
-                  </label>
+                  <div>
+                    <span className="text-xs text-blue-600 font-medium">+ 拖拽或点击上传首帧</span>
+                    <span className="text-[10px] text-slate-400 block mt-0.5">目标模特+商品构图 (9:16 建议)</span>
+                  </div>
                 )}
+                <input
+                  ref={firstFrameInputRef}
+                  type="file"
+                  accept="image/jpeg,image/png,image/webp"
+                  disabled={busy}
+                  style={{ display: 'none' }}
+                  onChange={(e) => {
+                    const f = e.target.files?.[0];
+                    if (f) setFirstFrame(f);
+                    e.target.value = '';
+                  }}
+                />
               </div>
               {firstFrame && (
                 <button
                   disabled={busy}
                   className="asset-remove-btn"
-                  onClick={() => setFirstFrame(null)}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setFirstFrame(null);
+                  }}
+                  title="移除成片首帧图"
                 >
                   <X className="w-4 h-4" />
                 </button>

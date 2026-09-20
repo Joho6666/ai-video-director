@@ -1649,3 +1649,36 @@ a {
     grid-template-columns: 1fr;
   }
 }
+
+
+/* Drag and Drop Enhanced Feedback */
+.asset-card-slot.drag-over {
+  border: 2px dashed var(--primary) !important;
+  background-color: var(--primary-light) !important;
+  transform: scale(1.01);
+  box-shadow: 0 4px 12px rgba(37, 99, 235, 0.15);
+}
+
+.asset-card-slot.drag-over .asset-slot-label {
+  color: var(--primary);
+}
+
+.asset-card-slot.drag-over .asset-thumb-box {
+  border-color: var(--primary);
+  background-color: #dbeafe;
+}
+
+.drag-hint-overlay {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--primary);
+  animation: pulse-soft 1.5s infinite;
+}
+
+@keyframes pulse-soft {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.6; }
+}
