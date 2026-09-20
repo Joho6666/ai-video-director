@@ -52,8 +52,8 @@ const DEFAULT_METADATA: Record<ProviderId, { name: string; role: string; default
     envModelName: 'WAN_MODEL',
   },
   minimax: {
-    name: 'MiniMax',
-    role: '用于图生视频（可选）',
+    name: 'MiniMax (Hailuo 2.3 / H3)',
+    role: 'MiniMax 海螺 2.3 / H3 · 视频生成 (6s 1080P)',
     defaultBaseUrl: 'https://api.minimax.cn',
     defaultModel: 'MiniMax-Hailuo-2.3',
     models: ['MiniMax-Hailuo-2.3'],

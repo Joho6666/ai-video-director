@@ -563,7 +563,7 @@ export default function WorkbenchPage() {
               <div className="asset-info-col">
                 <span className="asset-slot-label">
                   <span>成片首帧图</span>
-                  <span className="asset-badge-required">Wan 必填</span>
+                  <span className="asset-badge-required">{providerPreference === 'minimax' ? 'MiniMax 推荐' : 'Wan 必填'}</span>
                 </span>
                 {dragOverSlot === 'firstFrame' ? (
                   <span className="drag-hint-overlay">释放鼠标以放入图片</span>
@@ -829,16 +829,26 @@ export default function WorkbenchPage() {
               className="form-select"
               value={providerPreference}
               disabled={busy}
-              onChange={(e) => setProviderPreference(e.target.value as ProviderPreference)}
+              onChange={(e) => {
+                const val = e.target.value as ProviderPreference;
+                setProviderPreference(val);
+                if (val === 'minimax') {
+                  setDuration('6');
+                  setResolution('1080 x 1920 (1080p)');
+                } else if (val === 'wan') {
+                  setDuration('5');
+                  setResolution('1280 x 720 (720p)');
+                }
+              }}
             >
-              <option value="wan">Wan (DashScope)</option>
-              <option value="minimax">MiniMax</option>
+              <option value="wan">Wan (DashScope) · 5s 720p</option>
+              <option value="minimax">MiniMax (Hailuo 2.3 / H3) · 6s 1080p</option>
               <option value="auto">Auto (按已配置路由)</option>
             </select>
             <span className="form-hint mt-1">
               {providerPreference === 'wan'
-                ? 'wanx2.1-i2v-plus · 高质量，适合人物与商品视频生成'
-                : 'MiniMax-Hailuo-2.3 · 擅长运镜流动感与写实人物'}
+                ? 'wanx2.1-i2v-plus · 5 秒 720P · 适合人物与商品视频生成 (需提供成片首帧)'
+                : 'MiniMax-Hailuo-2.3 (Hailuo 2.3 / H3) · 6 秒 1080P · 擅长人物运镜与自然光影'}
             </span>
           </div>
 
