@@ -7,6 +7,7 @@ import { createExportPackage } from '../shared/exports';
 import { providerForSavedRoute, routeProvider, resolveVideoRoute } from '../video-provider/router';
 import type { VideoGenerationProvider, VideoGenerationRequest } from '../video-provider/types';
 import { selectionSchema, productionPrompt, prepareFirstFrame, loadGenerationTasks } from '../agent/production';
+import { autoComposeEnabled, composeFirstFrame, needsComposedFirstFrame } from '../image-compose';
 import {
   DirectorAgent,
   ProducerAgent,
@@ -181,8 +182,21 @@ export class WorkflowScheduler {
     if(task.generationTasks.length && stateManager.currentStatus==='FAILED')stateManager.resumeProduction();
 
     const hasPersistedFirstFrame = task.generationTasks.some(job => Boolean(job.request.firstFrame));
-    if (route.provider === 'wan' && !task.assets.some(asset => asset.kind === 'first_frame') && !hasPersistedFirstFrame) {
-      throw new Error('Wan 高保真生成必须上传已包含目标模特与商品的成片首帧图');
+    // The first frame is the only image a provider sees, so it must already
+    // show the target model and product. Without one, the reference video's
+    // own frame (the original product) would be used. Compose it before any
+    // paid video submission; the composer gates the frame and throws on
+    // mismatch, so a failed composition never reaches a video provider.
+    if (task.appMode === 'full' && !hasPersistedFirstFrame && !task.generationTasks.length) {
+      const composeEnv = options.env || process.env;
+      if (needsComposedFirstFrame(task) && autoComposeEnabled(composeEnv)) {
+        task.logs.push({ time: new Date().toISOString(), message: '正在自动合成首帧：目标模特 + 商品 + 参考镜头构图' });
+        await persistState();
+        await composeFirstFrame(task, { env: composeEnv });
+      }
+      if (!task.assets.some(asset => asset.kind === 'first_frame')) {
+        throw new Error('生成需要包含目标模特与商品的首帧：请同时上传模特图和商品图以自动合成，或手动上传首帧图（否则会沿用参考视频中的原商品）');
+      }
     }
     const persistedFirstFrame = task.generationTasks.find(job => job.request.firstFrame)?.request.firstFrame;
     const firstFrame = persistedFirstFrame || (task.appMode === 'full' && !task.generationTasks.length ? await prepareFirstFrame(task) : undefined);

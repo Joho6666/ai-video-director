@@ -5,6 +5,7 @@ import { z } from 'zod';
 import type { Task, Variant } from '../../shared/types';
 import { projectDir, jsonWrite } from '../../shared/storage';
 import { ffmpeg, ffprobe, mediaExec } from '../../video-analysis';
+import { completeJsonWithRepair, type JsonRepairMeta } from '../../shared/llm-json-repair';
 
 export const canonicalDimensionNames = [
   'motion_naturalness',
@@ -123,6 +124,8 @@ export interface QualityReport {
   evaluated_at: string;
   evaluation_mode: 'mock' | 'visual' | 'visual_blind';
   evidence: z.infer<typeof qualityEvidenceSchema>[];
+  /** Off-contract evidence set aside by partitionOffContractEvidence (audit only). */
+  discarded_evidence?: unknown[];
   retry_required: boolean;
   request_meta?: {
     id: string;
@@ -131,6 +134,7 @@ export interface QualityReport {
     frame_count: number;
     duration_ms: number;
     usage: unknown;
+    repair?: JsonRepairMeta;
   };
 }
 
@@ -205,6 +209,35 @@ export function normalizeMalformedQualityEvidence(raw: unknown, referenceIds: Se
   return output;
 }
 
+/**
+ * The judge sometimes files evidence under a label outside the contract
+ * (observed: `reference_similarity`, which has its own score block). Scores
+ * come from `dimensions`, so such items carry no gate weight and are set aside
+ * for audit instead of failing the whole report. A mislabeled item that
+ * asserts an observed medium/high defect is never dropped silently: it throws
+ * so the repair round must re-file it under a real dimension. Coverage of all
+ * four canonical dimensions is still enforced afterwards.
+ */
+export function partitionOffContractEvidence(raw: unknown): { normalized: unknown; discarded: unknown[] } {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return { normalized: raw, discarded: [] };
+  const output = { ...(raw as Record<string, unknown>) };
+  if (!Array.isArray(output.evidence)) return { normalized: output, discarded: [] };
+  const allowed = new Set<string>(dimensionNames);
+  const kept: unknown[] = [];
+  const discarded: unknown[] = [];
+  for (const [index, item] of output.evidence.entries()) {
+    const dimension = item && typeof item === 'object' ? (item as Record<string, unknown>).dimension : undefined;
+    if (typeof dimension !== 'string' || allowed.has(dimension)) { kept.push(item); continue; }
+    const e = item as Record<string, unknown>;
+    if (e.status === 'observed' && (e.severity === 'medium' || e.severity === 'high')) {
+      throw new Error(`QC evidence.${index} reports an observed ${String(e.severity)} defect under unknown dimension "${dimension}"; allowed: ${dimensionNames.join(', ')}`);
+    }
+    discarded.push(item);
+  }
+  output.evidence = kept;
+  return { normalized: output, discarded };
+}
+
 export function qcFrameCount(duration: number) {
   return duration <= 10 ? 16 : 24;
 }
@@ -217,7 +250,8 @@ export function validateVisualQuality(
   attempt: number,
   mode: 'mock' | 'visual' | 'visual_blind' = 'visual'
 ): QualityReport {
-  const data = visualQualitySchema.parse(normalizeQualityEvidenceLanguage(raw));
+  const { normalized, discarded } = partitionOffContractEvidence(raw);
+  const data = visualQualitySchema.parse(normalizeQualityEvidenceLanguage(normalized));
   for (const e of data.evidence) {
     if (e.frame_ids.some(id => !frameIds.has(id)) || e.reference_ids.some(id => !referenceIds.has(id))) {
       throw new Error('QC evidence references an unknown image ID');
@@ -276,6 +310,7 @@ export function validateVisualQuality(
     evaluated_at: new Date().toISOString(),
     evaluation_mode: mode,
     evidence: data.evidence,
+    ...(discarded.length ? { discarded_evidence: discarded } : {}),
     retry_required: !passed && repairableEvidence,
   };
 }
@@ -574,40 +609,60 @@ Evaluate reference_similarity by comparing camera motion, tempo, and composition
 Sparse stills cannot prove continuous motion: mark inferred or uncertain. For every evidence item with status inferred, the description MUST literally contain the word inferred or 推断; do not rely on the status field alone. If sampled frames cannot prove a continuous path, use status uncertain with an empty frame_ids array.
 Actual generation prompt/duration override original 8-second timing. Do not return overall score, passed or retry_required: server computes them.`;
 
-  const response = await client.chat.completions.create({
-    model: env.DEEPSEEK_MODEL || 'deepseek-flash',
-    stream: false,
-    max_tokens: 8192,
-    response_format: { type: 'json_object' },
-    thinking: { type: 'disabled' },
-    messages: [
-      { role: 'system', content: systemPrompt },
-      { role: 'user', content },
-    ],
-  } as OpenAI.Chat.Completions.ChatCompletionCreateParamsNonStreaming);
+  const frameIdSet = new Set(frames.map(f => f.id));
+  const report = await runVisualJudge({
+    client, env, systemPrompt, content, started,
+    label: 'Visual QC',
+    imageCount: count + 1 + referenceIds.size,
+    frameCount: count,
+    validate: raw => validateVisualQuality(raw, frameIdSet, referenceIds, variant.id, attempt, evalMode),
+  });
+  await jsonWrite(path.join(qcDir, 'quality-report.json'), report);
+  return report;
+}
 
-  const choice = response.choices[0];
-  if (choice?.finish_reason !== 'stop' || !choice.message.content?.trim()) {
-    throw new Error('Visual QC returned empty or incomplete JSON');
-  }
-
-  const report = validateVisualQuality(
-    JSON.parse(choice.message.content),
-    new Set(frames.map(f => f.id)),
-    referenceIds,
-    variant.id,
-    attempt,
-    evalMode
-  );
+/**
+ * Single judge call shared by task QC and blind benchmark QC. A schema
+ * violation gets at most one corrective re-ask through the same strict
+ * validator (see completeJsonWithRepair); it never touches the paid
+ * generation retry budget.
+ */
+async function runVisualJudge(options: {
+  client: OpenAI;
+  env: Record<string, string | undefined>;
+  systemPrompt: string;
+  content: OpenAI.Chat.Completions.ChatCompletionContentPart[];
+  started: number;
+  label: string;
+  imageCount: number;
+  frameCount: number;
+  validate: (raw: unknown) => QualityReport;
+}): Promise<QualityReport> {
+  const { value: report, response, repair } = await completeJsonWithRepair({
+    client: options.client,
+    label: options.label,
+    validate: options.validate,
+    request: {
+      model: options.env.DEEPSEEK_MODEL || 'deepseek-flash',
+      stream: false,
+      max_tokens: 8192,
+      response_format: { type: 'json_object' },
+      thinking: { type: 'disabled' },
+      messages: [
+        { role: 'system', content: options.systemPrompt },
+        { role: 'user', content: options.content },
+      ],
+    } as OpenAI.Chat.Completions.ChatCompletionCreateParamsNonStreaming,
+  });
   report.request_meta = {
     id: response.id,
     model: response.model,
-    image_count: count + 1 + referenceIds.size,
-    frame_count: count,
-    duration_ms: Date.now() - started,
+    image_count: options.imageCount,
+    frame_count: options.frameCount,
+    duration_ms: Date.now() - options.started,
     usage: response.usage,
+    ...(repair ? { repair } : {}),
   };
-  await jsonWrite(path.join(qcDir, 'quality-report.json'), report);
   return report;
 }
 
@@ -774,39 +829,14 @@ Evaluate reference_similarity by comparing camera motion, tempo, and composition
 Sparse stills cannot prove continuous motion: mark inferred or uncertain. For every evidence item with status inferred, the description MUST literally contain the word inferred or 推断; do not rely on the status field alone. If sampled frames cannot prove a continuous path, use status uncertain with an empty frame_ids array.
 Do not return overall score, passed or retry_required: server computes them.`;
 
-  const response = await client.chat.completions.create({
-    model: env.DEEPSEEK_MODEL || 'deepseek-flash',
-    stream: false,
-    max_tokens: 8192,
-    response_format: { type: 'json_object' },
-    thinking: { type: 'disabled' },
-    messages: [
-      { role: 'system', content: systemPrompt },
-      { role: 'user', content },
-    ],
-  } as OpenAI.Chat.Completions.ChatCompletionCreateParamsNonStreaming);
-
-  const choice = response.choices[0];
-  if (choice?.finish_reason !== 'stop' || !choice.message.content?.trim()) {
-    throw new Error('Blind visual QC returned empty or incomplete JSON');
-  }
-
-  const report = validateVisualQuality(
-    JSON.parse(choice.message.content),
-    new Set(frames.map(f => f.id)),
-    referenceIds,
-    candidateLabel,
-    0,
-    'visual_blind'
-  );
-  report.request_meta = {
-    id: response.id,
-    model: response.model,
-    image_count: count + 1 + referenceIds.size,
-    frame_count: count,
-    duration_ms: Date.now() - started,
-    usage: response.usage,
-  };
+  const frameIdSet = new Set(frames.map(f => f.id));
+  const report = await runVisualJudge({
+    client, env, systemPrompt, content, started,
+    label: 'Blind visual QC',
+    imageCount: count + 1 + referenceIds.size,
+    frameCount: count,
+    validate: raw => validateVisualQuality(raw, frameIdSet, referenceIds, candidateLabel, 0, 'visual_blind'),
+  });
   await jsonWrite(path.join(qcDir, 'quality-report.json'), report);
   return report;
 }

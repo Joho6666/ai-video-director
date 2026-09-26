@@ -72,6 +72,27 @@ export default function ProjectDetail({ params }: { params: Promise<{ id: string
     setTimeout(() => setCopied(false), 2000);
   };
 
+  const [producing, setProducing] = useState(false);
+  const canPromote = task?.appMode === 'director' && task?.status === 'COMPLETED' && Boolean(task?.plan);
+
+  const startProduction = async () => {
+    if (!id || producing) return;
+    const variants = task?.selectedVariants?.length ? task.selectedVariants : ['V1'];
+    if (!window.confirm(`将按导演方案生成 ${variants.join('/')}，会调用视频模型并产生真实费用。确定继续？`)) return;
+    setProducing(true);
+    try {
+      const r = await fetch(`/api/tasks/${id}/produce`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ selectedVariants: variants }),
+      });
+      const data = await r.json().catch(() => ({}));
+      if (!r.ok) window.alert(data.error || '无法转入生产');
+    } finally {
+      setProducing(false);
+    }
+  };
+
   const isCompleted = task?.status === 'COMPLETED';
   const isFailed = task?.status === 'FAILED';
   
@@ -109,6 +130,12 @@ export default function ProjectDetail({ params }: { params: Promise<{ id: string
               <Download className="w-4 h-4" />
               <span>下载报告</span>
             </a>
+          )}
+          {canPromote && (
+            <button className="btn-primary" onClick={() => void startProduction()} disabled={producing}>
+              <Video className="w-4 h-4" />
+              <span>{producing ? '提交中…' : '转入生产'}</span>
+            </button>
           )}
           <Link href="/?new=1" className="btn-primary">
             <RotateCcw className="w-4 h-4" />
