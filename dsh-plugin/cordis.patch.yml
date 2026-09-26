@@ -1,0 +1,49 @@
+# DeepSeek Harness loader patch for the AI Video Director plugin.
+#
+# Apply these inserts to a dsh profile's cordis.patch.yml (the profile patch
+# layer is applied after every bundle layer). The working configuration used to
+# verify this plugin lives at ~/.dsh/profiles/avd/cordis.patch.yml.
+#
+# Two entries are needed:
+#   1. `skill-filesystem` — teach the Harness filesystem skill provider about the
+#      project's existing skills/ directory, so `ai-commercial-video-director` is
+#      discovered and loaded on demand.
+#   2. `ai-video-director` — register the four AI Video Director tools.
+#
+# This registers the ONE existing Director skill in place. Do not copy it into
+# .dsh/skills or .agents/skills: a second copy would be a second source of truth,
+# and `packages/director/skill.ts` hashes the bundled SKILL.md, so drift between
+# the copies would silently change the director plan's skill fingerprint.
+#
+# ── Verified against ────────────────────────────────────────────────────────
+# @deepseek-ai/dsh 0.1.0-rc.6 (the globally installed `dsh` CLI), whose core
+# packages live under dsh/node_modules/@deepseek-ai/. Both versions agree on the
+# `defineTool` contract, but 0.1.0-rc.6 additionally REQUIRES every `type:
+# 'object'` schema node to declare `additionalProperties` explicitly; omitting it
+# throws JsonSchemaError at registration time.
+#
+# ── Runtime requirements ────────────────────────────────────────────────────
+# 1. The plugin entry is TypeScript source importing `packages/*` through
+#    extensionless relative specifiers, so the Harness must run on a TS-aware
+#    resolver:
+#      node --import tsx <dsh bin.js> --profile <name> "<task>"
+#    Node's native type stripping does not add extensionless resolution.
+# 2. `@deepseek-ai/dsh-tools` must resolve from the plugin. Link the DSH package
+#    set into the project, e.g.:
+#      mklink /J <project>/node_modules/@deepseek-ai <dsh>/node_modules/@deepseek-ai
+# 3. The plugin must resolve by name from the profile, e.g.:
+#      mklink /J ~/.dsh/profiles/<name>/node_modules/dsh-plugin-ai-video-director <project>/dsh-plugin
+# 4. The process working directory (or DATA_DIR) must point at the project root
+#    so packages/shared/storage resolves the same data/projects task directory
+#    as the GUI.
+
+- id: skill-filesystem
+  name: '@deepseek-ai/dsh-skill-filesystem'
+  config:
+    customSkillDirs:
+      - 'C:/Users/JOHO/Documents/Codex/2026-09-26/files-pasted-by-the-user-github/work/repo/skills'
+
+- insert:
+    - id: ai-video-director
+      name: 'dsh-plugin-ai-video-director'
+      config: {}

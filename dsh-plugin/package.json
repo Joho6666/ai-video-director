@@ -1,0 +1,19 @@
+{
+  "name": "dsh-plugin-ai-video-director",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "DeepSeek Harness adapter plugin exposing AI Video Director capabilities as Harness tools.",
+  "exports": {
+    ".": "./src/index.ts",
+    "./tools": "./src/tools/index.ts"
+  },
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "~4.0.4",
+    "@deepseek-ai/dsh-tools": "0.1.7-rc.2"
+  },
+  "peerDependenciesMeta": {
+    "@deepseek-ai/cordis": { "optional": true },
+    "@deepseek-ai/dsh-tools": { "optional": true }
+  }
+}
