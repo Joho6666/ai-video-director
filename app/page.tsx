@@ -244,10 +244,6 @@ export default function WorkbenchPage() {
       setError('请上传或拖入模特素材和商品素材');
       return;
     }
-    if (providerPreference === 'wan' && !firstFrame) {
-      setError('Wan 高保真模式必须提供已包含目标模特与商品的成片首帧图');
-      return;
-    }
     if (!requirement.trim()) {
       setError('请输入创作要求');
       return;
@@ -578,7 +574,7 @@ export default function WorkbenchPage() {
               )}
             </div>
 
-            {/* Slot 4: 成片首帧图 (Wan 必填) */}
+            {/* Slot 4: 成片首帧图（可选，不上传则自动合成） */}
             <div
               className={`asset-card-slot ${firstFrame ? 'has-file' : 'empty'} ${
                 dragOverSlot === 'firstFrame' ? 'drag-over' : ''
@@ -602,7 +598,7 @@ export default function WorkbenchPage() {
               <div className="asset-info-col">
                 <span className="asset-slot-label">
                   <span>成片首帧图</span>
-                  <span className="asset-badge-required">{providerPreference === 'minimax' ? 'MiniMax 推荐' : 'Wan 必填'}</span>
+                  <span className="asset-badge-required">可选</span>
                 </span>
                 {dragOverSlot === 'firstFrame' ? (
                   <span className="drag-hint-overlay">释放鼠标以放入图片</span>
@@ -616,8 +612,8 @@ export default function WorkbenchPage() {
                   </>
                 ) : (
                   <div>
-                    <span className="text-xs text-blue-600 font-medium">+ 拖拽或点击上传首帧</span>
-                    <span className="text-[10px] text-slate-400 block mt-0.5">目标模特+商品构图 (9:16 建议)</span>
+                    <span className="text-xs text-blue-600 font-medium">+ 可选：上传首帧</span>
+                    <span className="text-[10px] text-slate-400 block mt-0.5">不上传则用模特图+商品图按参考镜头自动合成</span>
                   </div>
                 )}
                 <input

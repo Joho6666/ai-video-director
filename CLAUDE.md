@@ -21,7 +21,7 @@
 npm run dev        # 开发（http://127.0.0.1:3000）
 npm run build      # 生产构建
 npm start          # 生产启动
-npm test           # tsx --test tests/*.test.ts   （当前 118 项全绿）
+npm test           # tsx --test tests/*.test.ts   （当前 126 项全绿）
 npm run typecheck  # tsc --noEmit
 ```
 
@@ -120,6 +120,19 @@ expected motion_naturalness | human_realism | product_consistency |
 - QC 的维度枚举越界（缺陷 #1）
 
 **方向**：一次「带错误信息的重出」，上限 1 次，且不得放宽校验。
+
+### ✅ 商品注入：自动合成首帧（2026-09-26，Phase A）
+
+此前视频模型唯一的输入是首帧；未手动上传首帧时回退到**参考视频第 0 帧（原博主的人和商品）**，商品图只用于分析和质检。
+- `packages/image-compose/`：`qwen-image-edit-plus`（DashScope，复用 `WAN_API_KEY`；
+  接口按 help.aliyun.com 文档核实：同步、1–3 图、**输出比例以最后一张为准**，故参考帧放最后；结果 URL 24h 过期须立即下载）。
+  输入顺序：模特图、商品图、参考帧（t=0.3s，1080×1920）。
+- 门禁 `checkComposedFrame`：DeepSeek 比对商品/人物/构图，服务端判定 `passed`（商品必须 match）。
+  未通过则抛错、**不写首帧资产、不提交视频**。报告在 `production/compose/compose-report.json`。
+- 调度器（`scheduler.ts`，Producer 之后、提交之前）：full 模式无首帧时自动合成；仍无首帧则**所有 Provider**都拒绝
+  （原先只有 Wan 拒绝，MiniMax 会静默用原商品帧）。合成前只 `persistState`，不写台账。
+- 开关：`AUTO_COMPOSE_FIRST_FRAME=off` 关闭；`IMAGE_COMPOSE_MODEL` 仅允许 plus / max。
+- 未实测真实调用（需 full 模式 + 用户确认费用）。
 
 ### ✅ P1 已修复（2026-09-26）：director → full 原地转入生产
 
@@ -256,7 +269,7 @@ packages/
 app/api/           tasks · references · media · settings · system · benchmark
 dsh-plugin/        Harness 插件
 skills/ai-commercial-video-director/   Director Skill（唯一一份）
-tests/             118 项测试
+tests/             126 项测试
 ```
 
 ### 数据流
@@ -273,7 +286,7 @@ generation-tasks.json(台账) → Provider → results/V*.mp4 → QualityAgent �
 
 ## 7. 改代码时的纪律
 
-1. **先跑 `npm test` 确认基线**（应 118 项全绿），改完再跑一次。
+1. **先跑 `npm test` 确认基线**（应 126 项全绿），改完再跑一次。
 2. **不要为了迁就模型而放宽校验**（schema、证据帧、维度枚举）。放宽 = 削弱产品。
 3. **不要引入第二套实现**。同一能力只允许一处实现，GUI 与插件共用。
 4. **不要在测试里产生付费调用**。需要真实 Provider 的路径必须显式标记且默认跳过。
