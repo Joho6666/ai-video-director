@@ -65,6 +65,12 @@ export default function WorkbenchPage() {
   const [modelFile, setModelFile] = useState<File | null>(null);
   const [productFile, setProductFile] = useState<File | null>(null);
   const [firstFrame, setFirstFrame] = useState<File | null>(null);
+  const [referenceUrl, setReferenceUrl] = useState('');
+  const [resolvedReference, setResolvedReference] = useState<{ platform: string; author?: { nickname?: string }; caption?: string; viralScore?: number; sourceUrl: string; videoUrl?: string } | null>(null);
+  const [referenceImportId, setReferenceImportId] = useState('');
+  const [referenceBusy, setReferenceBusy] = useState(false);
+  const [searchKeyword, setSearchKeyword] = useState('');
+  const [searchResults, setSearchResults] = useState<Array<{ id: string; platform: string; sourceUrl: string; caption?: string; viralScore?: number; videoUrl?: string }>>([]);
 
   const [dragOverSlot, setDragOverSlot] = useState<string | null>(null);
 
@@ -74,6 +80,7 @@ export default function WorkbenchPage() {
   const [providerPreference, setProviderPreference] = useState<ProviderPreference>('wan');
   const [requirement, setRequirement] = useState(defaultRequirement);
   const [activeTags, setActiveTags] = useState<string[]>(['自然真实']);
+  const [remixMode, setRemixMode] = useState<'creative' | 'structure' | 'close'>('structure');
 
   const [task, setTask] = useState<Task | null>(null);
   const [trace, setTrace] = useState<Trace | null>(null);
@@ -229,7 +236,7 @@ export default function WorkbenchPage() {
 
   const handleStart = async () => {
     setError('');
-    if (!reference) {
+    if (!reference && !referenceImportId) {
       setError('请先上传或拖入参考视频');
       return;
     }
@@ -250,9 +257,11 @@ export default function WorkbenchPage() {
     try {
       if (!submitKey.current) submitKey.current = crypto.randomUUID();
       const form = new FormData();
-      form.set('referenceVideo', reference);
+      if (reference) form.set('referenceVideo', reference);
+      if (referenceImportId) form.set('referenceImportId', referenceImportId);
       form.set('requirement', requirement);
       form.set('selectedVariants', JSON.stringify(['V1']));
+      form.set('remixMode', remixMode);
       form.set('providerPreference', providerPreference);
       form.append('modelImages', modelFile);
       form.append('productImages', productFile);
@@ -275,6 +284,25 @@ export default function WorkbenchPage() {
     } finally {
       setSubmitting(false);
     }
+  };
+
+  const resolveReferenceUrl = async () => {
+    if (!referenceUrl.trim()) return;
+    setReferenceBusy(true); setError('');
+    try {
+      const response = await fetch('/api/references/resolve', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ url: referenceUrl.trim() }) });
+      const value = await response.json(); if (!response.ok) throw new Error(value.error); setResolvedReference(value);
+    } catch (e) { setError(e instanceof Error ? e.message : '解析参考链接失败'); } finally { setReferenceBusy(false); }
+  };
+  const importReference = async () => {
+    if (!resolvedReference) return; setReferenceBusy(true); setError('');
+    try { const response = await fetch('/api/references/import', { method:'POST', headers:{ 'Content-Type':'application/json' }, body:JSON.stringify({ reference:resolvedReference }) }); const value = await response.json(); if (!response.ok) throw new Error(value.error); setReferenceImportId(value.importId); setReference(null); }
+    catch (e) { setError(e instanceof Error ? e.message : '导入参考视频失败'); } finally { setReferenceBusy(false); }
+  };
+  const searchReferences = async () => {
+    if (!searchKeyword.trim()) return; setReferenceBusy(true); setError('');
+    try { const response = await fetch('/api/references/search', { method:'POST', headers:{ 'Content-Type':'application/json' }, body:JSON.stringify({ platform:'douyin', keyword:searchKeyword.trim(), sort:'viral', limit:20 }) }); const value = await response.json(); if (!response.ok) throw new Error(value.error); setSearchResults(value.results || []); }
+    catch (e) { setError(e instanceof Error ? e.message : '搜索失败'); } finally { setReferenceBusy(false); }
   };
 
   const isDoneStep1 = Boolean(task?.plan);
@@ -342,7 +370,7 @@ export default function WorkbenchPage() {
               }`}
               onDragOver={(e) => handleDragOver(e, 'reference')}
               onDragLeave={(e) => handleDragLeave(e, 'reference')}
-              onDrop={(e) => handleDrop(e, 'reference', 'video', setReference)}
+              onDrop={(e) => handleDrop(e, 'reference', 'video', (file) => { setReference(file); setReferenceImportId(''); })}
               onClick={() => {
                 if (!reference && !busy) refInputRef.current?.click();
               }}
@@ -385,7 +413,7 @@ export default function WorkbenchPage() {
                   style={{ display: 'none' }}
                   onChange={(e) => {
                     const f = e.target.files?.[0];
-                    if (f) setReference(f);
+                    if (f) { setReference(f); setReferenceImportId(''); }
                     e.target.value = '';
                   }}
                 />
@@ -403,6 +431,17 @@ export default function WorkbenchPage() {
                   <X className="w-4 h-4" />
                 </button>
               )}
+            </div>
+
+            <div className="mt-3 rounded-xl border border-dashed border-slate-300 p-3" onClick={(e) => e.stopPropagation()}>
+              <div className="text-xs font-medium text-slate-600 mb-2">或粘贴 TikTok / Instagram / 抖音链接</div>
+              <div className="flex gap-2">
+                <input className="flex-1 rounded-lg border border-slate-200 px-3 py-2 text-xs" value={referenceUrl} disabled={busy || referenceBusy} onChange={(e) => setReferenceUrl(e.target.value)} placeholder="https://..." />
+                <button type="button" className="btn-secondary text-xs" disabled={busy || referenceBusy || !referenceUrl.trim()} onClick={resolveReferenceUrl}>{referenceBusy ? '解析中…' : '解析链接'}</button>
+              </div>
+              {resolvedReference && <div className="mt-2 rounded-lg bg-slate-50 p-2 text-xs"><div className="font-medium">{resolvedReference.platform} · {resolvedReference.author?.nickname || '未知作者'}</div><div className="text-slate-500 line-clamp-2">{resolvedReference.caption || '暂无文案'} · Viral Score {resolvedReference.viralScore ?? 'UNKNOWN'}</div><button type="button" className="mt-1 text-blue-600" disabled={referenceBusy || Boolean(referenceImportId)} onClick={importReference}>{referenceImportId ? '已导入为参考视频' : '导入为参考视频'}</button></div>}
+              <div className="mt-3 flex gap-2"><input className="flex-1 rounded-lg border border-slate-200 px-3 py-2 text-xs" value={searchKeyword} onChange={(e) => setSearchKeyword(e.target.value)} placeholder="搜索抖音爆款关键词" /><button type="button" className="btn-secondary text-xs" disabled={referenceBusy || !searchKeyword.trim()} onClick={searchReferences}>搜索爆款</button></div>
+              {searchResults.length > 0 && <div className="mt-2 max-h-40 overflow-auto space-y-1">{searchResults.map(item => <button type="button" key={item.id} className="block w-full rounded-lg border border-slate-200 p-2 text-left text-xs" onClick={() => { setReferenceUrl(item.sourceUrl); setResolvedReference(item); setReferenceImportId(''); }}>{item.caption || item.id} · {item.viralScore ?? 'UNKNOWN'}</button>)}</div>}
             </div>
 
             {/* Slot 2: 模特素材 */}
@@ -643,6 +682,7 @@ export default function WorkbenchPage() {
                 + 添加标签
               </button>
             </div>
+            <div className="mt-3 flex items-center gap-2 text-xs"><label className="text-slate-500">复刻策略</label><select className="rounded-lg border border-slate-200 px-2 py-1" value={remixMode} disabled={busy} onChange={(e) => setRemixMode(e.target.value as typeof remixMode)}><option value="creative">灵感重构</option><option value="structure">结构复刻（推荐）</option><option value="close">高相似参考</option></select></div>
           </div>
         </section>
 

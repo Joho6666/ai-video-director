@@ -11,6 +11,9 @@ export interface RetryEvaluationResult {
 }
 
 export const MAX_RETRIES_PER_VARIANT = 1;
+export const RemixRetryIssue = {
+  HOOK_MISMATCH: 'HOOK_MISMATCH', SHOT_STRUCTURE_MISMATCH: 'SHOT_STRUCTURE_MISMATCH', CAMERA_MISMATCH: 'CAMERA_MISMATCH', MOTION_MISMATCH: 'MOTION_MISMATCH', PACING_MISMATCH: 'PACING_MISMATCH', CHARACTER_DRIFT: 'CHARACTER_DRIFT', PRODUCT_DRIFT: 'PRODUCT_DRIFT', SCENE_DRIFT: 'SCENE_DRIFT', HUMAN_UNNATURAL: 'HUMAN_UNNATURAL', QUALITY_LOW: 'QUALITY_LOW',
+} as const;
 
 export function evaluateRetrySkill(
   report: QualityReport,
@@ -46,6 +49,8 @@ export function evaluateRetrySkill(
   let additions = '';
 
   const issuesStr = report.issues.join('; ').toLowerCase();
+  const targeted = (needle: string, code: keyof typeof RemixRetryIssue) => { if (issuesStr.includes(needle)) targetIssues.push(RemixRetryIssue[code]); };
+  targeted('hook', 'HOOK_MISMATCH'); targeted('shot structure', 'SHOT_STRUCTURE_MISMATCH'); targeted('pacing', 'PACING_MISMATCH'); targeted('character', 'CHARACTER_DRIFT'); targeted('scene', 'SCENE_DRIFT'); targeted('unnatural', 'HUMAN_UNNATURAL');
 
   // 1. Robotic arm / 机械手臂缺陷局部补丁
   if (issuesStr.includes('robotic arm') || issuesStr.includes('机械手') || issuesStr.includes('僵硬手') || issuesStr.includes('arm')) {

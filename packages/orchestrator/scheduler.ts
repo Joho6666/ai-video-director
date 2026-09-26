@@ -199,7 +199,7 @@ export class WorkflowScheduler {
         variantId: id,
         model: route.model,
         mode: 'image-to-video',
-        prompt: productionPrompt(variant, route.duration).prompt,
+        prompt: productionPrompt(variant, route.duration, task.plan).prompt,
         duration: route.duration,
         aspect_ratio: route.aspect_ratio,
         quality: 'high',

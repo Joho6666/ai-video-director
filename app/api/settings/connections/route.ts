@@ -21,7 +21,7 @@ export async function POST(req: NextRequest) {
   try {
     const body = await req.json() as { provider?: unknown; key?: unknown; baseUrl?: unknown; model?: unknown };
     const provider = String(body.provider || '').toLowerCase() as ProviderId;
-    if (!['deepseek', 'wan', 'minimax', 'seedance'].includes(provider)) {
+    if (!['deepseek', 'wan', 'minimax', 'seedance', 'tikhub', 'redfox'].includes(provider)) {
       return NextResponse.json({ error: '无效的服务提供商' }, { status: 400 });
     }
     const key = typeof body.key === 'string' ? body.key.trim() : undefined;
@@ -51,7 +51,7 @@ export async function DELETE(req: NextRequest) {
         provider = String(body.provider || '').toLowerCase() as ProviderId;
       } catch {}
     }
-    if (!provider || !['deepseek', 'wan', 'minimax', 'seedance'].includes(provider)) {
+    if (!provider || !['deepseek', 'wan', 'minimax', 'seedance', 'tikhub', 'redfox'].includes(provider)) {
       return NextResponse.json({ error: '无效的服务提供商' }, { status: 400 });
     }
 

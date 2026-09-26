@@ -48,13 +48,16 @@ export async function loadGenerationTasks(task:Task):Promise<GenerationTask[]>{
   return [];
  }
 }
-export function productionPrompt(variant:Variant,duration:number){
+export function productionPrompt(variant:Variant,duration:number,plan?:Task['plan']){
  const source=variant.timeline.length>2?[variant.timeline[0],variant.timeline[variant.timeline.length-1]]:variant.timeline;
  const total=source.reduce((sum,b)=>sum+b.duration,0);if(!total)throw new Error('Empty timeline');let elapsed=0;
  const timeline=source.map((beat,i)=>{const start=elapsed;elapsed=i===source.length-1?duration:Number((elapsed+beat.duration/total*duration).toFixed(3));return {...beat,duration:elapsed-start,time_range:`${start}-${elapsed}s`};});
  const showcase=variant.product_showcase?.[0];
  const productLock=showcase?` Product lock: preserve the visible product silhouette, color, pattern and proportions from the first frame; showcase ${showcase.feature} by ${showcase.action} with ${showcase.camera_focus}.`:' Product lock: preserve the exact visible product in the first frame and keep it continuously stable.';
- const prompt=`${duration}-second vertical commercial. Visual lock: the supplied first frame is authoritative for the same person, wardrobe, product and composition; do not replace or recolor them.`+productLock+` One main movement and one product showcase only. `+timeline.map(b=>`${b.time_range}: ${b.transition}; camera: ${(b as Record<string,unknown>).camera_state||'steady'}; end: ${b.end_state}.`).join(' ');
+ const dna = plan?.creative_dna as { preserve?: string[]; replace?: string[] } | undefined;
+ const remix = plan?.remix_profile as { mode?: string } | undefined;
+ const remixInstructions = remix ? ` Remix mode: ${remix.mode}. PRESERVE reference structure: ${(dna?.preserve || []).slice(0,3).join('; ') || 'observed camera and pacing logic'}. REPLACE original person, product, brand, captions, logo, watermark and music with the supplied assets and newly authored content. Never reproduce source frames verbatim.` : '';
+ const prompt=`${duration}-second vertical commercial. Visual lock: the supplied first frame is authoritative for the same person, wardrobe, product and composition; do not replace or recolor them.`+productLock+` One main movement and one product showcase only. `+timeline.map(b=>`${b.time_range}: ${b.transition}; camera: ${(b as Record<string,unknown>).camera_state||'steady'}; end: ${b.end_state}.`).join(' ')+remixInstructions;
  const details=` Performance: ${['gaze','head_movement','shoulder_movement','body_weight','arms','hands'].map(key=>variant.performance[key]).filter(Boolean).join('; ')}.`;
  if(prompt.length>2000)throw new Error('Production core prompt exceeds provider limit');
  return {prompt:prompt.length+details.length<=2000?prompt+details:prompt,timeline};
@@ -130,7 +133,7 @@ export async function produce(task:Task,providerOverride?:VideoGenerationProvide
  for(const id of selected){if(task.generationTasks.some(j=>j.variantId===id))continue;const variant=task.plan.variants.find(v=>v.id===id);if(!variant)throw new Error('Selected variant missing');
   const modelIds=task.assets.filter(asset=>asset.kind==='model').map(asset=>asset.file);
   const productIds=task.assets.filter(asset=>asset.kind==='product').map(asset=>asset.file);
-  const request:VideoGenerationRequest={taskId:task.id,variantId:id,model:route.model,mode:'image-to-video',prompt:productionPrompt(variant,route.duration).prompt,duration:route.duration,aspect_ratio:'9:16',quality:'high',resolution:route.resolution,firstFrame,input_manifest:{analysis_reference_ids:[...modelIds,...productIds],qc_reference_ids:[...modelIds,...productIds],provider_reference_ids:firstFrame?[firstFrame.id]:[]}};
+  const request:VideoGenerationRequest={taskId:task.id,variantId:id,model:route.model,mode:'image-to-video',prompt:productionPrompt(variant,route.duration,task.plan).prompt,duration:route.duration,aspect_ratio:'9:16',quality:'high',resolution:route.resolution,firstFrame,input_manifest:{analysis_reference_ids:[...modelIds,...productIds],qc_reference_ids:[...modelIds,...productIds],provider_reference_ids:firstFrame?[firstFrame.id]:[]}};
   task.generationTasks.push({id:randomUUID(),variantId:id,provider:route.provider,model:route.model,status:'PENDING',created_at:new Date().toISOString(),updated_at:new Date().toISOString(),request});
  }
  task.results=selected.map(id=>task.results.find(r=>r.id===id)||{id,name:task.plan!.variants.find(v=>v.id===id)!.name,status:'waiting'});

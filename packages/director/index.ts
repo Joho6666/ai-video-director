@@ -1,5 +1,6 @@
 import { z } from 'zod';
-import { planSchema, type Task, type Plan } from '../shared/types';
+import { planSchema, type Task, type Plan, remixProfiles } from '../shared/types';
+import { deriveCreativeDNA } from './creative-dna';
 import { mockMotionDna, motionDnaSchema } from '../shared/motion-dna.schema';
 import { loadSkill } from './skill';
 import { mockTreatment } from './mock';
@@ -41,7 +42,7 @@ export async function compileTreatment(task:Task,raw:unknown,supplements:unknown
  if(mode==='live'&&Object.values(treatment.quality_check).some(v=>v!=='pass'))throw new Error('Director 质量检查未通过');
  const extra=supplementsSchema.parse(supplements);
  const resolvedMotionDna = motionDna ? motionDnaSchema.parse(motionDna) : ((treatment as Record<string,unknown>)?.motion_dna ? motionDnaSchema.parse((treatment as Record<string,unknown>).motion_dna) : mockMotionDna());
- const plan=planSchema.parse({video_generation:{provider:"auto",model:"",mode:"reference-to-video",duration:8,aspect_ratio:"9:16",quality:"high"},project_id:task.project_id,mode,skill_sha256:skill.sha256,reference_analysis:treatment.reference_analysis,shot_dna:treatment.shot_dna,motion_dna:resolvedMotionDna,limitations:treatment.limitations,variants:treatment.variations.map(v=>{
+ const plan=planSchema.parse({video_generation:{provider:"auto",model:"",mode:"reference-to-video",duration:8,aspect_ratio:"9:16",quality:"high"},project_id:task.project_id,mode,skill_sha256:skill.sha256,reference_analysis:treatment.reference_analysis,shot_dna:treatment.shot_dna,motion_dna:resolvedMotionDna,creative_dna:deriveCreativeDNA(treatment.reference_analysis,treatment.shot_dna,resolvedMotionDna),remix_profile:remixProfiles[task.remixMode || 'structure'],limitations:treatment.limitations,variants:treatment.variations.map(v=>{
   if(v.timeline.continuity_check!=='pass')throw new Error('连续性检查未通过');
   const supplement=extra.find(x=>x.id===v.id);if(!supplement)throw new Error('缺少版本结构');
   if(mode==='live'&&(v.similarity_report.decision!=='pass'||Object.values(v.similarity_report).filter(x=>x==='high').length>=4))throw new Error('参考相似度检查未通过');

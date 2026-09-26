@@ -31,6 +31,10 @@ export function normalizeDimensionName(dim: string): typeof canonicalDimensionNa
 }
 
 export const referenceSimilaritySchema = z.object({
+  hook_similarity: z.number().min(0).max(25).optional(),
+  shot_structure_similarity: z.number().min(0).max(25).optional(),
+  timing_similarity: z.number().min(0).max(25).optional(),
+  pacing_similarity: z.number().min(0).max(25).optional(),
   camera_similarity: z.number().min(0).max(25),
   motion_similarity: z.number().min(0).max(25),
   composition_similarity: z.number().min(0).max(25),

@@ -8,7 +8,16 @@ export const legacyStatuses = ['UPLOADED','ANALYZING_REFERENCE','EXTRACTING_SHOT
 export const statuses = ['CREATED','ANALYZING','PLANNING','GENERATING','REVIEWING','RETRYING','COMPLETED','FAILED','UPLOADED','ANALYZING_REFERENCE','EXTRACTING_SHOT_DNA','PLANNING_VARIANTS','GENERATING_V1','GENERATING_V2','GENERATING_V3'] as const;
 export type Status = typeof statuses[number];
 
-export type Asset = { name: string; file: string; mime: string; kind: 'reference'|'model'|'product'|'first_frame' };
+export type Asset = { name: string; file: string; mime: string; kind: 'reference'|'model'|'product'|'first_frame'; sourceUrl?: string; sourceProvider?: 'tikhub'|'redfox'|'local'; metadata?: Record<string, unknown> };
+export type RemixMode = 'creative' | 'structure' | 'close';
+export type RemixProfile = { mode: RemixMode; hookLock: number; shotStructureLock: number; cameraLock: number; motionLock: number; pacingLock: number; characterReplace: boolean; productReplace: boolean; locationReplace: boolean; copyReplace: boolean; audioRebuild: boolean };
+export type ViralCreativeDNA = { hook: Record<string, unknown>; pacing: Record<string, unknown>; camera: Record<string, unknown>; performance: Record<string, unknown>; selling: Record<string, unknown>; visualStyle: Record<string, unknown>; shotDNA: unknown; motionDNA: unknown; preserve: string[]; replace: string[] };
+export type WorkflowNodeData = { id: string; type: 'reference'|'creative_dna'|'character'|'product'|'scene'|'director'|'variant'|'provider'|'qa'; taskId: string; assetId?: string };
+export const remixProfiles: Record<RemixMode, RemixProfile> = {
+  creative: { mode:'creative', hookLock:.55, shotStructureLock:.25, cameraLock:.2, motionLock:.25, pacingLock:.4, characterReplace:true, productReplace:true, locationReplace:true, copyReplace:true, audioRebuild:true },
+  structure: { mode:'structure', hookLock:.9, shotStructureLock:.9, cameraLock:.8, motionLock:.8, pacingLock:.85, characterReplace:true, productReplace:true, locationReplace:true, copyReplace:true, audioRebuild:true },
+  close: { mode:'close', hookLock:.95, shotStructureLock:.95, cameraLock:.9, motionLock:.9, pacingLock:.9, characterReplace:true, productReplace:true, locationReplace:false, copyReplace:true, audioRebuild:true },
+};
 export type Metadata = { duration: number; fps: number; width: number; height: number; frameCount: number };
 export const showcaseSchema=z.object({feature:z.string().min(1),action:z.string().min(1),camera_focus:z.string().min(1),evidence:z.string().min(1)});
 export type ProductShowcase=z.infer<typeof showcaseSchema>;
@@ -24,6 +33,7 @@ export const planSchema = z.object({ video_generation:videoGenerationSchema.opti
   reference_analysis:z.unknown(), shot_dna:z.object({keep:z.array(z.string()),mutate:z.array(z.string())}).passthrough(),
   motion_dna:motionDnaSchema.optional(),
   variants:z.array(variantSchema).length(3), limitations:z.array(z.string()),
+  creative_dna:z.unknown().optional(), remix_profile:z.unknown().optional(),
 });
 export type Variant = z.infer<typeof variantSchema>;
 export type Plan = z.infer<typeof planSchema>;
@@ -48,6 +58,7 @@ export type Task = {
   results:Result[];
   taskType?:'fashion'|'ecommerce';
   selectedVariants?:Array<'V1'|'V2'|'V3'>;
+  remixMode?: RemixMode;
   generationTasks?:GenerationTask[];
   metadata?:Metadata;
   plan?:Plan;

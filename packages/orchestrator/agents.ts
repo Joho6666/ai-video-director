@@ -164,7 +164,7 @@ export class QualityAgent {
       actualRequest: (() => {
         const current = task.generationTasks?.filter(j => j.variantId === variantId).at(-1);
         const duration = current?.request.duration || 8;
-        const compiled = productionPrompt(variant, duration);
+        const compiled = productionPrompt(variant, duration, task.plan);
         return { prompt: current?.request.prompt || compiled.prompt, duration, timeline: compiled.timeline };
       })(),
       env: ctx.env,

@@ -1,5 +1,5 @@
 import { NextRequest,NextResponse,after } from 'next/server';
-import { mkdir,writeFile,readdir,stat } from 'node:fs/promises';
+import { mkdir,writeFile,readdir,stat,readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { createHash,randomUUID } from 'node:crypto';
 import { active,runTask,startPendingTaskRecovery } from '@/packages/agent/runner';
@@ -42,8 +42,9 @@ export async function POST(req:NextRequest){
  try{
   await hydrateEnvironment();
   const form=await req.formData();const reference=form.get('referenceVideo');const requirement=String(form.get('requirement')||'').trim();
-  if(!(reference instanceof File)||!reference.size||! /\.(mp4|mov)$/i.test(reference.name))throw new Error('请上传 MP4 / MOV 参考视频');
-  if(reference.size>100*1024*1024)throw new Error('参考视频不能超过 100 MB');
+  const referenceImportId = String(form.get('referenceImportId') || '');
+  if (!(reference instanceof File) && !/^[a-f0-9-]{36}$/.test(referenceImportId)) throw new Error('请上传参考视频或先导入参考链接');
+  if (reference instanceof File && (!reference.size || !/\.(mp4|mov)$/i.test(reference.name) || reference.size>100*1024*1024)) throw new Error('参考视频需为 MP4 / MOV 且不超过 100 MB');
   if(!requirement||requirement.length>5000)throw new Error('创作要求需为 1–5000 字');
   const models=form.getAll('modelImages');const products=form.getAll('productImages');
   if(models.length<1||products.length<1)throw new Error('请至少上传一张模特图和一张商品图');
@@ -54,6 +55,7 @@ export async function POST(req:NextRequest){
   const providerPreference=rawPreference as ProviderPreference;
   const selectedVariants=selectionSchema.parse(JSON.parse(String(form.get('selectedVariants')||'["V1"]')));
   const taskType=String(form.get('taskType')||'ecommerce');if(!['fashion','ecommerce'].includes(taskType))throw new Error('Unsupported task type');
+  const remixMode=String(form.get('remixMode')||'structure');if(!['creative','structure','close'].includes(remixMode))throw new Error('Remix 模式无效');
   const images=[...models,...products,...(firstFrame instanceof File&&firstFrame.size?[firstFrame]:[])];
   for(const file of images)if(!(file instanceof File)||!['image/jpeg','image/png','image/webp'].includes(file.type)||file.size>10*1024*1024||file.size===0)throw new Error('图片需为 JPG / PNG / WebP，单张不超过 10 MB');
   const config=resolveAppConfig({...process.env, VIDEO_PROVIDER: providerPreference==='auto' ? process.env.VIDEO_PROVIDER : providerPreference});
@@ -61,13 +63,17 @@ export async function POST(req:NextRequest){
    throw new Error('Wan 高保真生成必须上传一张已包含目标模特与商品的成片首帧图');
   }
   const id=randomUUID();const idempotencyKey=req.headers.get('idempotency-key')||randomUUID();
-  const incoming=[{file:reference,kind:'reference' as const},...models.map(file=>({file:file as File,kind:'model' as const})),...products.map(file=>({file:file as File,kind:'product' as const})),...(firstFrame instanceof File&&firstFrame.size?[{file:firstFrame,kind:'first_frame' as const}]:[])];
+  const incoming=[...(reference instanceof File ? [{file:reference,kind:'reference' as const}] : []),...models.map(file=>({file:file as File,kind:'model' as const})),...products.map(file=>({file:file as File,kind:'product' as const})),...(firstFrame instanceof File&&firstFrame.size?[{file:firstFrame,kind:'first_frame' as const}]:[])];
   const buffered=await Promise.all(incoming.map(async item=>({...item,data:Buffer.from(await item.file.arrayBuffer())})));
-  const fingerprint=createHash('sha256').update(requirement).update(config.appMode).update(JSON.stringify({selectedVariants,taskType,provider:providerPreference,model:config.videoProvider})).update(buffered.map(x=>createHash('sha256').update(x.data).digest('hex')).join(':')).digest('hex');
+  const fingerprint=createHash('sha256').update(requirement).update(config.appMode).update(JSON.stringify({selectedVariants,taskType,provider:providerPreference,model:config.videoProvider,referenceImportId,remixMode})).update(buffered.map(x=>createHash('sha256').update(x.data).digest('hex')).join(':')).digest('hex');
   const reservation=await reserveIdempotency(idempotencyKey,fingerprint,id);if(reservation.existing){try{return NextResponse.json(await readTask(reservation.id));}catch{return NextResponse.json({error:'已有幂等任务记录但任务文件不可用，请更换 Idempotency-Key'},{status:409});}}
-  const task:Task={taskType:taskType as "fashion"|"ecommerce",selectedVariants,id,project_id:id,createdAt:new Date().toISOString(),updatedAt:new Date().toISOString(),requirement,assets:[],status:'UPLOADED',appMode:config.appMode,provider:config.videoProvider,providerPreference,director:config.director,idempotencyKey,logs:[{time:new Date().toISOString(),message:`素材已保存 · Provider 路线 ${providerPreference}` }],results:config.appMode==='director'?[]:selectedVariants.map((resultId,i)=>({id:resultId,name:['轻奢时尚','都市通勤','活力街拍'][i],status:'waiting'}))};
+  const task:Task={taskType:taskType as "fashion"|"ecommerce",selectedVariants,remixMode:remixMode as Task['remixMode'],id,project_id:id,createdAt:new Date().toISOString(),updatedAt:new Date().toISOString(),requirement,assets:[],status:'UPLOADED',appMode:config.appMode,provider:config.videoProvider,providerPreference,director:config.director,idempotencyKey,logs:[{time:new Date().toISOString(),message:`素材已保存 · Provider 路线 ${providerPreference}` }],results:config.appMode==='director'?[]:selectedVariants.map((resultId,i)=>({id:resultId,name:['轻奢时尚','都市通勤','活力街拍'][i],status:'waiting'}))};
   await mkdir(path.join(projectDir(id),'uploads'),{recursive:true});
   for(const {file,kind,data} of buffered){const ext=kind==='reference'?path.extname(file.name).toLowerCase():({'image/jpeg':'.jpg','image/png':'.png','image/webp':'.webp'}[file.type]||'.jpg');const relative=`uploads/${randomUUID()}${ext}`;await writeFile(path.join(projectDir(id),relative),data);task.assets.push({name:file.name,file:relative,mime:file.type,kind});}
+  if (referenceImportId) {
+    const sourceDir = path.join(dataRoot, 'reference-imports', referenceImportId); const imported = JSON.parse(await readFile(path.join(sourceDir, 'reference.json'), 'utf8')); const filename = String(imported.localFile || ''); if (!/^reference-[a-f0-9-]+\.mp4$/.test(filename)) throw new Error('导入参考视频记录无效');
+    const bytes = await readFile(path.join(sourceDir, filename)); const relative = `uploads/reference.mp4`; await writeFile(path.join(projectDir(id), relative), bytes); task.assets = task.assets.filter(asset => asset.kind !== 'reference'); task.assets.push({ name: 'reference.mp4', file: relative, mime: 'video/mp4', kind: 'reference', sourceUrl: imported.sourceUrl, sourceProvider: imported.provider, metadata: imported });
+  }
   await jsonWrite(path.join(projectDir(id),'runtime.json'),{version:'1.3.0',app_mode:task.appMode,director:task.director,video_provider:task.provider,deepseek_model:task.director==='deepseek'?config.deepseekModel:null,minimax_model:task.provider==='minimax'?(process.env.MINIMAX_MODEL||'MiniMax-Hailuo-2.3'):null,wan_model:task.provider==='wan'?(process.env.WAN_MODEL||'wanx2.1-i2v-plus'):null,frame_count:null});
   await saveTask(task);active.add(id);after(()=>runTask(task));return NextResponse.json(task,{status:201});
  }catch(e){return NextResponse.json({error:customerErrorMessage(e)},{status:400});}

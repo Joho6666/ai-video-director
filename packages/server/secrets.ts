@@ -2,7 +2,7 @@ import path from 'node:path';
 import { readFile, mkdir } from 'node:fs/promises';
 import { dataRoot, jsonWrite } from '../shared/storage';
 
-export type ProviderId = 'deepseek' | 'wan' | 'minimax' | 'seedance';
+export type ProviderId = 'deepseek' | 'wan' | 'minimax' | 'seedance' | 'tikhub' | 'redfox';
 
 export interface StoredSecretEntry {
   key?: string;
@@ -71,6 +71,12 @@ const DEFAULT_METADATA: Record<ProviderId, { name: string; role: string; default
     envBaseName: 'SEEDANCE_BASE_URL',
     envModelName: 'SEEDANCE_MODEL',
   },
+  tikhub: {
+    name: 'TikHub', role: 'TikTok / Instagram / 抖音参考视频解析与爆款发现', defaultBaseUrl: 'https://api.tikhub.io', defaultModel: '', models: [], envKeyNames: ['TIKHUB_API_KEY'], envBaseName: 'TIKHUB_BASE_URL', envModelName: 'TIKHUB_MODEL',
+  },
+  redfox: {
+    name: 'RedFox', role: '参考视频解析与爆款发现（Experimental / Optional）', defaultBaseUrl: 'https://redfox.hk', defaultModel: '', models: [], envKeyNames: ['REDFOX_API_KEY'], envBaseName: 'REDFOX_BASE_URL', envModelName: 'REDFOX_MODEL',
+  },
 };
 
 export function maskApiKey(key: string | undefined): string | null {
@@ -132,7 +138,7 @@ export async function getProviderConfig(provider: ProviderId, env: Record<string
 
 /** Load local credentials for server-side provider adapters only. */
 export async function hydrateEnvironment(env: Record<string, string | undefined> = process.env): Promise<void> {
-  const providers: ProviderId[] = ['deepseek', 'wan', 'minimax', 'seedance'];
+  const providers: ProviderId[] = ['deepseek', 'wan', 'minimax', 'seedance', 'tikhub', 'redfox'];
   for (const provider of providers) {
     const config = await getProviderConfig(provider, env);
     const meta = DEFAULT_METADATA[provider];
@@ -171,7 +177,7 @@ export async function deleteSecret(provider: ProviderId): Promise<void> {
 }
 
 export async function listConnectionStatuses(env: Record<string, string | undefined> = process.env): Promise<ConnectionStatusInfo[]> {
-  const providers: ProviderId[] = ['deepseek', 'wan', 'minimax', 'seedance'];
+  const providers: ProviderId[] = ['deepseek', 'wan', 'minimax', 'seedance', 'tikhub', 'redfox'];
   const list: ConnectionStatusInfo[] = [];
   for (const p of providers) {
     const config = await getProviderConfig(p, env);
@@ -246,6 +252,13 @@ export async function testConnection(
 
     if (provider === 'seedance') {
       return { ok: false, message: 'Seedance 适配器目前未配置可用端点' };
+    }
+
+    if (provider === 'tikhub' || provider === 'redfox') {
+      const res = await fetch(`${baseUrl}/`, { headers: { Authorization: `Bearer ${key}`, 'X-API-KEY': key }, signal: AbortSignal.timeout(10_000) });
+      const latencyMs = Date.now() - start;
+      if (res.status === 401 || res.status === 403) return { ok: false, latencyMs, message: `${provider === 'tikhub' ? 'TikHub' : 'RedFox'} API Key 无效或未授权` };
+      return { ok: res.ok || res.status < 500, latencyMs, message: res.ok ? `连接正常 (${latencyMs}ms)` : `HTTP 错误: ${res.status}` };
     }
 
     return { ok: false, message: '未知的服务提供商' };
