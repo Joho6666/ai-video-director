@@ -237,6 +237,18 @@ export class WorkflowStateManager {
     delete this.log.error;
   }
 
+  /** Director-only COMPLETED → PLANNING for in-place production. The caller
+   * (promoteDirectorTask) must first prove that no paid attempt exists. */
+  promoteDirectorPlan(): void {
+    if (this.log.status !== 'COMPLETED') throw new Error(`Cannot promote workflow from ${this.log.status}`);
+    const timestamp = new Date().toISOString();
+    this.log.transitions.push({ from: 'COMPLETED', to: 'PLANNING', agent: 'orchestrator', timestamp, message: '导演方案转入生产；未提交过视频任务' });
+    this.log.status = 'PLANNING';
+    this.log.app_mode = 'full';
+    this.log.current_agent = 'orchestrator';
+    delete this.log.error;
+  }
+
   async persist(): Promise<void> {
     await jsonWrite(path.join(this.rootPath, 'agent-run.json'), this.log);
   }

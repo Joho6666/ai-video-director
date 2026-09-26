@@ -2,6 +2,7 @@ import { saveTask } from '../../../packages/shared/storage';
 import { selectionSchema } from '../../../packages/agent/production';
 import { resolveVideoRoute } from '../../../packages/video-provider/router';
 import { VideoProductionWorkflow } from '../../../packages/orchestrator/workflow';
+import { promoteDirectorTask } from '../../../packages/agent/promote';
 import { inspectTask, loadState, loadTask, ToolInputError, type InspectVariant } from '../adapters/task-adapter';
 import { defineVideoDirectorTool, renderJson } from './contract';
 
@@ -168,7 +169,17 @@ export const videoProduceTool = defineVideoDirectorTool<ProduceToolArgs, Produce
       requestedVariants = parsed.data;
     }
 
-    const task = await loadTask(args.taskId);
+    let task = await loadTask(args.taskId);
+
+    // A finished Director-only plan is promoted in place (shared with the GUI
+    // route). promoteDirectorTask refuses whenever a paid attempt could exist.
+    if (task.appMode === 'director' && task.status === 'COMPLETED' && process.env.APP_MODE === 'full') {
+      try {
+        task = await promoteDirectorTask(task.id, { selectedVariants: requestedVariants });
+      } catch (error) {
+        throw new ToolInputError(error instanceof Error ? error.message : '无法将导演方案转入生产');
+      }
+    }
 
     if (!task.plan) {
       throw new ToolInputError('任务尚未完成导演分析；请先调用 video_analyze 生成 V1/V2/V3 方案');

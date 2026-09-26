@@ -9,7 +9,7 @@
     "start": "next start --hostname 127.0.0.1",
     "typecheck": "tsc --noEmit",
     "lint": "eslint .",
-    "test": "tsx --test tests/*.test.ts",
+    "test": "tsx --import ./tests/support/isolate-data.ts --test tests/*.test.ts",
     "smoke": "npm run build && tsx scripts/smoke.ts",
     "ab": "tsx scripts/ab-test.ts",
     "director-smoke": "npm run build && tsx scripts/director-smoke.ts",

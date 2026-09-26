@@ -21,7 +21,7 @@
 npm run dev        # 开发（http://127.0.0.1:3000）
 npm run build      # 生产构建
 npm start          # 生产启动
-npm test           # tsx --test tests/*.test.ts   （当前 112 项全绿）
+npm test           # tsx --test tests/*.test.ts   （当前 118 项全绿）
 npm run typecheck  # tsc --noEmit
 ```
 
@@ -121,6 +121,16 @@ expected motion_naturalness | human_realism | product_consistency |
 
 **方向**：一次「带错误信息的重出」，上限 1 次，且不得放宽校验。
 
+### ✅ P1 已修复（2026-09-26）：director → full 原地转入生产
+
+- `promoteDirectorTask`（`packages/agent/promote.ts`）：仅当全局 `APP_MODE=full`、任务为
+  director + `COMPLETED` + 有 plan，且**无任何付费尝试证据**（台账文件 / `generationTasks` /
+  `providerTaskId` / 非 waiting 结果）时，改为 `full` + `PLANNING` 并初始化所选变体结果。
+  状态机只新增 `promoteDirectorPlan()`（COMPLETED→PLANNING），`loadGenerationTasks` 的缺台账守卫**未放宽**。
+- 入口：GUI `POST /api/tasks/[id]/produce`（详情页「转入生产」按钮，带费用确认）；
+  插件 `video_produce` 对 director 已完成任务自动调用同一函数。
+- 以下保留作历史记录。
+
 ### 🟠 P1 · director → full 无法原地转换
 
 director 模式跑完分析后 `task.status = 'COMPLETED'`。
@@ -160,7 +170,12 @@ route 与插件共用同一实现。**不要出现第二套实现。**
 传 `limit: 5` 实测返回 7 条。`TikHubProvider.search` 把 limit 透传给上游，
 上游不严格保证条数。建议在返回前本地截断。
 
-### 🟡 P3 · `data/` 下累积了 141 个任务目录
+### 🟡 P3 · `data/` 下累积了 180+ 个任务目录
+
+**根因已修**：此前 `npm test` 未设 `DATA_DIR`，每跑一次往真实 `data/projects` 写约 15 个测试目录。
+现在 `test` 脚本通过 `tests/support/isolate-data.ts` 指向临时目录。存量目录仍需人工甄别后清理（mtime 不可靠）。
+
+（原记录）
 
 含大量测试残留。它们的 `task.json` 都在，但素材是测试用的占位文件。
 清理前请确认不误删真实任务。
@@ -241,7 +256,7 @@ packages/
 app/api/           tasks · references · media · settings · system · benchmark
 dsh-plugin/        Harness 插件
 skills/ai-commercial-video-director/   Director Skill（唯一一份）
-tests/             112 项测试
+tests/             118 项测试
 ```
 
 ### 数据流
@@ -258,7 +273,7 @@ generation-tasks.json(台账) → Provider → results/V*.mp4 → QualityAgent �
 
 ## 7. 改代码时的纪律
 
-1. **先跑 `npm test` 确认基线**（应 112 项全绿），改完再跑一次。
+1. **先跑 `npm test` 确认基线**（应 118 项全绿），改完再跑一次。
 2. **不要为了迁就模型而放宽校验**（schema、证据帧、维度枚举）。放宽 = 削弱产品。
 3. **不要引入第二套实现**。同一能力只允许一处实现，GUI 与插件共用。
 4. **不要在测试里产生付费调用**。需要真实 Provider 的路径必须显式标记且默认跳过。
