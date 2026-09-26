@@ -9,6 +9,7 @@ import { loadSkill } from '../director/skill';
 import { compileTreatment,structureSchema,supplementsSchema } from '../director';
 import { motionDnaSchema } from '../shared/motion-dna.schema';
 import { ffmpeg,mediaExec } from '../video-analysis';
+import { completeJsonWithRepair } from '../shared/llm-json-repair';
 
 const evidenceFields=['scene','shot_size','camera_height','camera_angle','camera_motion','subject_trajectory','action_sequence','gaze','head_movement','shoulder_movement','arm_motion','hand_action','body_weight','facial_expression','product_interaction','motion_continuity','lighting','rhythm','product_display_logic'] as const;
 const evidenceItem=z.discriminatedUnion('status',[
@@ -73,6 +74,10 @@ export function normalizeUnknownMotionEvidence(value:unknown):unknown{
   copy.evidence={...evidence,frames:[],confidence:0};
  }
  return copy;
+}
+export function parseDirectorEnvelope(raw:unknown){
+ const input=raw&&typeof raw==='object'&&!Array.isArray(raw)?{...(raw as Record<string,unknown>),motion_dna:normalizeUnknownMotionEvidence((raw as Record<string,unknown>).motion_dna)}:raw;
+ return deepSeekEnvelopeSchema.parse(input);
 }
 export function validateEvidenceAgainstTreatment(treatment:unknown,evidence:z.infer<typeof referenceEvidenceSchema>,supplements?:z.infer<typeof supplementsSchema>,validProductIds=new Set<string>()){
  const analyses=(treatment as {reference_analysis?:Array<Record<string,unknown>>})?.reference_analysis||[];
@@ -141,14 +146,16 @@ export class DeepSeekDirectorAdapter implements AgentAdapter {
   const apiKey=process.env.DEEPSEEK_API_KEY; if(!apiKey)throw new Error('缺少 DEEPSEEK_API_KEY');
   const skill=await loadSkill();const input=await buildDeepSeekInput(task);const started=Date.now();
   const client=new OpenAI({apiKey,baseURL:process.env.DEEPSEEK_BASE_URL||'https://api.deepseek.com',maxRetries:0,timeout:180_000});
-  const response=await client.chat.completions.create({model:process.env.DEEPSEEK_MODEL||'deepseek-flash',stream:false,max_tokens:16384,response_format:{type:'json_object'},messages:[{role:'system',content:`You are the AI Commercial Video Director. Follow this read-only skill exactly. Output valid JSON only.\n${skill.text}\n\n${directorOutputContract()}`},{role:'user',content:input.content}],thinking:{type:'disabled'}} as OpenAI.Chat.Completions.ChatCompletionCreateParamsNonStreaming);
-  const choice=response.choices[0];if(!choice)throw new Error('DeepSeek 未返回结果');if(choice.finish_reason==='length')throw new Error('DeepSeek JSON 被 token 限制截断');if(choice.finish_reason!=='stop')throw new Error(`DeepSeek 异常结束：${choice.finish_reason}`);
-  const text=choice.message.content;if(!text?.trim())throw new Error('DeepSeek 返回空 JSON');let raw:unknown;try{raw=JSON.parse(text);}catch{throw new Error('DeepSeek 返回内容不是有效 JSON');}
-  let envelope:z.infer<typeof deepSeekEnvelopeSchema>;try{const envelopeInput=raw&&typeof raw==='object'?{...(raw as Record<string,unknown>),motion_dna:normalizeUnknownMotionEvidence((raw as Record<string,unknown>).motion_dna)}:raw;envelope=deepSeekEnvelopeSchema.parse(envelopeInput);}catch(error){const keys=raw&&typeof raw==='object'?Object.keys(raw as object):[];throw new Error(`DeepSeek JSON Schema 校验失败；顶层键：${keys.join(',')||'none'}；${error instanceof Error?error.message:'未知错误'}`);}const productIds=new Set(task.assets.filter(a=>a.kind==='product').map((_,i)=>`product_${String(i+1).padStart(2,'0')}`));const supplements=normalizeUnknownProductShowcase(normalizeProductEvidenceSources(envelope.supplements,productIds));const validEvidenceFrameIds=new Set(input.frames.map(f=>f.id));const normalizedEvidence=normalizeEvidenceFrameIds(envelope.reference_evidence,validEvidenceFrameIds);validateEvidenceFrameIds(normalizedEvidence,validEvidenceFrameIds);
+  let lastKeys:string[]=[];
+  // Schema failures (envelope / Motion DNA v2 evidence) get one corrective re-ask through the same strict schema.
+  let completion:Awaited<ReturnType<typeof completeJsonWithRepair<z.infer<typeof deepSeekEnvelopeSchema>>>>;
+  try{completion=await completeJsonWithRepair({client,label:'DeepSeek Director',validate:raw=>{lastKeys=raw&&typeof raw==='object'?Object.keys(raw as object):[];return parseDirectorEnvelope(raw);},request:{model:process.env.DEEPSEEK_MODEL||'deepseek-flash',stream:false,max_tokens:16384,response_format:{type:'json_object'},messages:[{role:'system',content:`You are the AI Commercial Video Director. Follow this read-only skill exactly. Output valid JSON only.\n${skill.text}\n\n${directorOutputContract()}`},{role:'user',content:input.content}],thinking:{type:'disabled'}} as OpenAI.Chat.Completions.ChatCompletionCreateParamsNonStreaming});}
+  catch(error){const message=error instanceof Error?error.message:'未知错误';if(/failed validation after one repair/.test(message))throw new Error(`DeepSeek JSON Schema 校验失败；顶层键：${lastKeys.join(',')||'none'}；${message}`);throw error;}
+  const {value:envelope,response,repair:schemaRepair}=completion;const productIds=new Set(task.assets.filter(a=>a.kind==='product').map((_,i)=>`product_${String(i+1).padStart(2,'0')}`));const supplements=normalizeUnknownProductShowcase(normalizeProductEvidenceSources(envelope.supplements,productIds));const validEvidenceFrameIds=new Set(input.frames.map(f=>f.id));const normalizedEvidence=normalizeEvidenceFrameIds(envelope.reference_evidence,validEvidenceFrameIds);validateEvidenceFrameIds(normalizedEvidence,validEvidenceFrameIds);
   const conflicts=findUnknownTreatmentConflicts(envelope.treatment,normalizedEvidence);let treatment=envelope.treatment;let repairMeta:Record<string,unknown>|undefined;
   if(conflicts.length){const repair=await repairUnknownConflicts(client,envelope.treatment,conflicts,skill.text);treatment=repair.treatment;repairMeta={id:repair.id,fields:conflicts.map(c=>`reference_analysis.${c.index}.${c.field}`)};}
   validateEvidenceAgainstTreatment(treatment,normalizedEvidence,supplements,productIds);
   const compiled=await compileTreatment(task,treatment,supplements,'live',envelope.motion_dna);
-  return {...compiled,evidence:normalizedEvidence,requestMeta:{id:response.id,model:response.model,duration_ms:Date.now()-started,image_count:input.content.filter(x=>x.type==='image_url').length,image_bytes:input.imageBytes,frame_count:input.frames.length,usage:response.usage,...(repairMeta?{repair:repairMeta}:{})}};
+  return {...compiled,evidence:normalizedEvidence,requestMeta:{id:response.id,model:response.model,duration_ms:Date.now()-started,image_count:input.content.filter(x=>x.type==='image_url').length,image_bytes:input.imageBytes,frame_count:input.frames.length,usage:response.usage,...(repairMeta?{repair:repairMeta}:{}),...(schemaRepair?{schemaRepair}:{})}};
  }
 }

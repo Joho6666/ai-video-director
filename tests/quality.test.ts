@@ -54,3 +54,28 @@ test('Quality Agent v2 supports canonical dimensions and calculates reference si
   assert.equal(report.reference_similarity?.camera_similarity, 22);
   assert.equal(report.reference_similarity?.motion_similarity, 21);
 });
+
+// P0-1: the judge filed evidence under `reference_similarity` (a score block, not a dimension).
+test('QC sets aside off-contract evidence dimensions without failing the report',()=>{
+ const value=result() as ReturnType<typeof result>&{evidence:Array<Record<string,unknown>>};
+ value.evidence.push({dimension:'reference_similarity',description:'Camera motion broadly matches reference',status:'observed',severity:'low',confidence:'medium',frame_ids:['qc_frame_01'],reference_ids:[]});
+ const report=validate(value);
+ assert.equal(report.passed,true);
+ assert.equal(report.evidence.length,4);
+ assert.equal(report.discarded_evidence?.length,1);
+ assert.equal((report.discarded_evidence?.[0] as {dimension:string}).dimension,'reference_similarity');
+});
+test('QC never silently drops an observed medium/high defect under an unknown dimension',()=>{
+ const value=result() as ReturnType<typeof result>&{evidence:Array<Record<string,unknown>>};
+ value.evidence.push({dimension:'reference_similarity',description:'Framing jumps',status:'observed',severity:'high',confidence:'high',frame_ids:['qc_frame_01'],reference_ids:[]});
+ assert.throws(()=>validate(value),/unknown dimension "reference_similarity"/);
+});
+test('QC still requires four-dimension coverage after dropping off-contract evidence',()=>{
+ const value=result() as ReturnType<typeof result>&{evidence:Array<Record<string,unknown>>};
+ value.evidence[3]={...value.evidence[3],dimension:'reference_similarity'};
+ value.evidence.push({...value.evidence[0]});
+ assert.throws(()=>validate(value),/four dimensions/);
+});
+test('QC keeps the enum strict for items that are validated',()=>{
+ const value=result();assert.equal(validate(value).discarded_evidence,undefined);
+});

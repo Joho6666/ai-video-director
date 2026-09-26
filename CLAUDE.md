@@ -21,7 +21,7 @@
 npm run dev        # 开发（http://127.0.0.1:3000）
 npm run build      # 生产构建
 npm start          # 生产启动
-npm test           # tsx --test tests/*.test.ts   （当前 103 项全绿）
+npm test           # tsx --test tests/*.test.ts   （当前 112 项全绿）
 npm run typecheck  # tsc --noEmit
 ```
 
@@ -76,6 +76,17 @@ dsh-plugin/ ─┘
 ---
 
 ## 4. 已知缺陷（按优先级 · 这是继续打磨的入口）
+
+### ✅ P0-1 / P0-2 已修复（2026-09-26）
+
+- `partitionOffContractEvidence`（`packages/skills/quality/index.ts`）：越界维度名的 evidence
+  移入 `discarded_evidence` 留档，不参与门禁；但若它是 observed + medium/high 缺陷则抛错，
+  交给修复轮重出。维度枚举与四维覆盖校验不变。
+- `completeJsonWithRepair`（`packages/shared/llm-json-repair.ts`）：schema/JSON 失败时
+  带错误清单重出**一次**，用同一个严格校验器复验；截断/空响应不重试。
+  QC（含盲评）与 Director（信封 + Motion DNA v2）已接入，元数据记在
+  `request_meta.repair` / `requestMeta.schemaRepair`。只花 DeepSeek token，不动生成重试预算。
+- 以下两节保留作历史记录。
 
 ### 🔴 P0-1 · QC 输出缺少 schema 容错，成片永远无法交付
 
@@ -230,7 +241,7 @@ packages/
 app/api/           tasks · references · media · settings · system · benchmark
 dsh-plugin/        Harness 插件
 skills/ai-commercial-video-director/   Director Skill（唯一一份）
-tests/             103 项测试
+tests/             112 项测试
 ```
 
 ### 数据流
@@ -247,7 +258,7 @@ generation-tasks.json(台账) → Provider → results/V*.mp4 → QualityAgent �
 
 ## 7. 改代码时的纪律
 
-1. **先跑 `npm test` 确认基线**（应 103 项全绿），改完再跑一次。
+1. **先跑 `npm test` 确认基线**（应 112 项全绿），改完再跑一次。
 2. **不要为了迁就模型而放宽校验**（schema、证据帧、维度枚举）。放宽 = 削弱产品。
 3. **不要引入第二套实现**。同一能力只允许一处实现，GUI 与插件共用。
 4. **不要在测试里产生付费调用**。需要真实 Provider 的路径必须显式标记且默认跳过。
